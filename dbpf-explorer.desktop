@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=DBPF Explorer
+Comment=Explore and extract DBPF files from Spore
+Exec=/path/to/sporemodder-fx/launch_dbpf_explorer.sh
+Icon=/path/to/sporemodder-fx/dbpf_icon.png
+Terminal=false
+Categories=Utility;Development;
+Keywords=spore;dbpf;modding;extractor;
+StartupNotify=true</content>
+<parameter name="filePath">/workspaces/SporeModder-FX/dbpf-explorer.desktop
