@@ -802,6 +802,160 @@ class DBPFExplorer:
             except Exception as e:
                 messagebox.showerror("Export Failed", f"Failed to export image: {str(e)}")
 
+    def view_selected_image(self):
+        """View the selected image file."""
+        if not HAS_PIL:
+            messagebox.showerror("PIL Required", "PIL (Pillow) is required for image viewing. Install with: pip install Pillow")
+            return
+
+        selection = self.file_tree.selection()
+        if not selection or not self.current_dbpf:
+            messagebox.showwarning("No Selection", "Please select an image file to view.")
+            return
+
+        item = self.file_tree.item(selection[0])
+        resource_key_str = item['text']
+
+        self.status_var.set(f"Loading image {resource_key_str}...")
+
+        def load_image_task():
+            try:
+                key = parse_resource_key(resource_key_str)
+                type_info = get_file_info_from_type(key.type_id)
+                extension, category, description = type_info
+
+                # Check if it's an image type
+                image_extensions = ['png', 'jpg', 'jpeg', 'bmp', 'tga', 'gif', 'dds', 'uitexture']
+                if extension.lower() not in image_extensions:
+                    self.show_error("Selected file is not an image file.")
+                    return
+
+                # Extract file content to memory
+                import io
+                data_stream = io.BytesIO()
+                success = self.current_dbpf.extract_file_to_stream(key, data_stream)
+                if not success:
+                    self.show_error("Failed to extract image file.")
+                    return
+
+                image_data = data_stream.getvalue()
+
+                # Load image directly from bytes
+                try:
+                    self.current_image = Image.open(io.BytesIO(image_data))
+                    self.current_image.load()  # Ensure image is fully loaded
+
+                    # Convert to Tkinter format
+                    self.current_image_tk = ImageTk.PhotoImage(self.current_image)
+
+                    # Display on canvas
+                    self.image_canvas.delete("all")
+                    self.image_canvas.create_image(0, 0, anchor=tk.NW, image=self.current_image_tk)
+
+                    # Configure canvas scroll region
+                    width, height = self.current_image.size
+                    self.image_canvas.config(scrollregion=(0, 0, width * self.image_zoom, height * self.image_zoom))
+
+                    # Switch to image viewer tab
+                    self.preview_notebook.select(1)  # Image viewer tab
+
+                    self.status_var.set(f"Image loaded: {width}x{height}")
+
+                except Exception as img_error:
+                    self.show_error(f"Failed to load image data: {str(img_error)}")
+
+            except Exception as e:
+                self.show_error(f"Failed to load image: {str(e)}")
+                self.status_var.set("Image load failed")
+
+        thread = threading.Thread(target=load_image_task, daemon=True)
+        thread.start()
+
+    def play_selected_audio(self):
+        """Play the selected audio file."""
+        if not (HAS_PYGAME or HAS_PLAYSOUND):
+            messagebox.showerror("Audio Library Required", "pygame or playsound is required for audio playback.\nInstall with: pip install pygame")
+            return
+
+        selection = self.file_tree.selection()
+        if not selection or not self.current_dbpf:
+            messagebox.showwarning("No Selection", "Please select an audio file to play.")
+            return
+
+        item = self.file_tree.item(selection[0])
+        resource_key_str = item['text']
+
+        self.status_var.set(f"Loading audio {resource_key_str}...")
+
+        def load_audio_task():
+            try:
+                key = parse_resource_key(resource_key_str)
+                type_info = get_file_info_from_type(key.type_id)
+                extension, category, description = type_info
+
+                # Check if it's an audio type
+                audio_extensions = ['wav', 'ogg', 'mp3', 'bnk', 'snr', 'sns', 'smt', 'instrument', 'voice', 'submix']
+                if extension.lower() not in audio_extensions:
+                    self.show_error("Selected file is not an audio file.")
+                    return
+
+                # Extract file content to temporary file for audio playback
+                import tempfile
+                with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{extension}') as temp_file:
+                    temp_path = temp_file.name
+
+                try:
+                    success = self.current_dbpf.extract_file(key, temp_path)
+                    if not success:
+                        self.show_error("Failed to extract audio file.")
+                        return
+
+                    self.current_audio_file = temp_path
+                    self.play_audio_file(temp_path, extension, resource_key_str)
+
+                except Exception as e:
+                    try:
+                        os.unlink(temp_path)
+                    except:
+                        pass
+                    raise e
+
+            except Exception as e:
+                self.show_error(f"Failed to load audio: {str(e)}")
+                self.status_var.set("Audio load failed")
+
+        thread = threading.Thread(target=load_audio_task, daemon=True)
+        thread.start()
+
+    def play_audio_file(self, file_path, extension, resource_key_str):
+        """Play the audio file using available library."""
+        try:
+            # Display audio information
+            audio_info = self.get_audio_info(file_path, extension, resource_key_str)
+            self.audio_info_text.config(state=tk.NORMAL)
+            self.audio_info_text.delete(1.0, tk.END)
+            self.audio_info_text.insert(1.0, audio_info)
+            self.audio_info_text.config(state=tk.DISABLED)
+
+            # Switch to audio player tab
+            audio_tab_index = 3 if HAS_PIL else 2  # Adjust index based on available tabs
+            if HAS_PYGAME or HAS_PLAYSOUND:
+                audio_tab_index = 3 if HAS_PIL else 2
+            else:
+                audio_tab_index = 2 if HAS_PIL else 1
+            self.preview_notebook.select(audio_tab_index)
+
+            # Play audio
+            if HAS_PYGAME:
+                self.play_with_pygame(file_path)
+            elif HAS_PLAYSOUND:
+                self.play_with_playsound(file_path)
+
+            self.status_var.set(f"Playing audio: {resource_key_str}")
+
+        except Exception as e:
+            self.show_error(f"Failed to play audio: {str(e)}")
+
     def view_selected_property(self):
         """View the selected property file in structured format."""
         selection = self.file_tree.selection()
@@ -825,33 +979,27 @@ class DBPFExplorer:
                     self.show_error("Selected file is not a property file.")
                     return
 
-                # Extract file content
-                import tempfile
-                with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-                    temp_path = temp_file.name
+                # Get file data directly from DBPF
+                file_info = self.current_dbpf.get_file_info(key)
+                if not file_info:
+                    self.show_error("Could not get file information.")
+                    return
 
-                try:
-                    success = self.current_dbpf.extract_file(key, temp_path)
-                    if not success:
-                        self.show_error("Failed to extract property file.")
-                        return
+                # Extract file content to memory
+                import io
+                data_stream = io.BytesIO()
+                success = self.current_dbpf.extract_file_to_stream(key, data_stream)
+                if not success:
+                    self.show_error("Failed to extract property file.")
+                    return
 
-                    # Read and parse property file
-                    with open(temp_path, 'rb') as f:
-                        file_data = f.read()
+                file_data = data_stream.getvalue()
+                self.parse_and_display_property(file_data, resource_key_str)
 
-                    self.parse_and_display_property(file_data, resource_key_str)
+                # Switch to property viewer tab
+                self.preview_notebook.select(2)  # Property viewer tab
 
-                    # Switch to property viewer tab
-                    self.preview_notebook.select(2)  # Property viewer tab
-
-                    self.status_var.set(f"Property file loaded: {resource_key_str}")
-
-                finally:
-                    try:
-                        os.unlink(temp_path)
-                    except:
-                        pass
+                self.status_var.set(f"Property file loaded: {resource_key_str}")
 
             except Exception as e:
                 self.show_error(f"Failed to load property file: {str(e)}")
@@ -1117,6 +1265,242 @@ class DBPFExplorer:
                 messagebox.showinfo("Export Successful", f"Audio exported to {file_path}")
             except Exception as e:
                 messagebox.showerror("Export Failed", f"Failed to export audio: {str(e)}")
+
+    def view_selected_property(self):
+        """View the selected property file in structured format."""
+        selection = self.file_tree.selection()
+        if not selection or not self.current_dbpf:
+            messagebox.showwarning("No Selection", "Please select a property file to view.")
+            return
+
+        item = self.file_tree.item(selection[0])
+        resource_key_str = item['text']
+
+        self.status_var.set(f"Loading property file {resource_key_str}...")
+
+        def load_property_task():
+            try:
+                key = parse_resource_key(resource_key_str)
+                type_info = get_file_info_from_type(key.type_id)
+                extension, category, description = type_info
+
+                # Check if it's a property file
+                if extension.lower() != 'prop':
+                    self.show_error("Selected file is not a property file.")
+                    return
+
+                # Get file data directly from DBPF
+                file_info = self.current_dbpf.get_file_info(key)
+                if not file_info:
+                    self.show_error("Could not get file information.")
+                    return
+
+                # Extract file content to memory
+                import io
+                data_stream = io.BytesIO()
+                success = self.current_dbpf.extract_file_to_stream(key, data_stream)
+                if not success:
+                    self.show_error("Failed to extract property file.")
+                    return
+
+                file_data = data_stream.getvalue()
+                self.parse_and_display_property(file_data, resource_key_str)
+
+                # Switch to property viewer tab
+                self.preview_notebook.select(2)  # Property viewer tab
+
+                self.status_var.set(f"Property file loaded: {resource_key_str}")
+
+            except Exception as e:
+                self.show_error(f"Failed to load property file: {str(e)}")
+                self.status_var.set("Property load failed")
+
+        thread = threading.Thread(target=load_property_task, daemon=True)
+        thread.start()
+
+    def parse_and_display_property(self, file_data, resource_key_str):
+        """Parse property file data and display in tree structure."""
+        # Clear existing tree
+        for item in self.prop_tree.get_children():
+            self.prop_tree.delete(item)
+
+        try:
+            # Parse the binary property file
+            properties = self._parse_property_file(file_data)
+
+            # Display in tree structure
+            root_node = self.prop_tree.insert('', 'end', text=f"Property File: {resource_key_str}", open=True)
+
+            # Add special properties first (like Java implementation)
+            special_props = {
+                0x00B2CCCA: "description",
+                0x00B2CCCB: "parent",
+                0x2F8B3BF4: "name",  # FNV132 hash of "name"
+                0x5F6317D5: "parent"  # FNV132 hash of "parent"
+            }
+
+            # Group properties
+            special_group = self.prop_tree.insert(root_node, 'end', text="Special Properties", open=True)
+            regular_group = self.prop_tree.insert(root_node, 'end', text="Properties", open=True)
+
+            for prop_id, prop_data in properties.items():
+                prop_name = special_props.get(prop_id, f"0x{prop_id:08X}")
+                prop_type, prop_value = prop_data
+
+                # Determine which group to put it in
+                parent = special_group if prop_id in special_props else regular_group
+
+                # Create tree node
+                if isinstance(prop_value, list) and len(prop_value) > 1:
+                    # Array property
+                    array_node = self.prop_tree.insert(parent, 'end', text=f"{prop_name} [{len(prop_value)} items]", open=True)
+                    for i, val in enumerate(prop_value):
+                        self.prop_tree.insert(array_node, 'end', text=f"[{i}]: {val}")
+                else:
+                    # Single value
+                    value = prop_value[0] if isinstance(prop_value, list) else prop_value
+                    node_text = f"{prop_name}: {value}"
+                    if len(str(value)) > 50:
+                        node_text = f"{prop_name}: {str(value)[:50]}..."
+                        # Add full value as child
+                        prop_node = self.prop_tree.insert(parent, 'end', text=node_text)
+                        self.prop_tree.insert(prop_node, 'end', text=f"Full value: {value}")
+                    else:
+                        self.prop_tree.insert(parent, 'end', text=node_text)
+
+        except Exception as e:
+            # If parsing fails, show raw content
+            root_node = self.prop_tree.insert('', 'end', text=f"Property File: {resource_key_str} (Parse Error)", open=True)
+            self.prop_tree.insert(root_node, 'end', text=f"Parse Error: {str(e)}")
+
+            # Try to show as hex dump
+            try:
+                hex_content = self._create_hex_dump(file_data[:1024])
+                hex_node = self.prop_tree.insert(root_node, 'end', text="Raw Data (Hex)", open=True)
+                for line in hex_content.split('\n')[:20]:  # First 20 lines
+                    if line.strip():
+                        self.prop_tree.insert(hex_node, 'end', text=line)
+            except:
+                self.prop_tree.insert(root_node, 'end', text="Could not display raw data")
+
+    def _parse_property_file(self, data):
+        """Parse binary property file data."""
+        import struct
+
+        properties = {}
+        offset = 0
+
+        try:
+            # Read property count
+            if len(data) < 4:
+                raise ValueError("File too small for property count")
+            count = struct.unpack('<I', data[offset:offset+4])[0]
+            offset += 4
+
+            for i in range(count):
+                if offset + 8 > len(data):
+                    raise ValueError(f"Incomplete property {i}")
+
+                # Read property header: id (4 bytes), type (2 bytes), flags (2 bytes)
+                prop_id = struct.unpack('<I', data[offset:offset+4])[0]
+                offset += 4
+                prop_type = struct.unpack('<H', data[offset:offset+2])[0]
+                offset += 2
+                prop_flags = struct.unpack('<H', data[offset:offset+2])[0]
+                offset += 2
+
+                # Parse based on flags
+                if (prop_flags & 0x30) == 0:
+                    # Single property
+                    is_array = False
+                    array_count = 1
+                elif (prop_flags & 0x40) == 0:
+                    # Array property
+                    if offset + 8 > len(data):
+                        raise ValueError(f"Incomplete array header for property {i}")
+                    array_count = struct.unpack('<I', data[offset:offset+4])[0]
+                    array_size = struct.unpack('<I', data[offset+4:offset+8])[0]
+                    offset += 8
+                    is_array = True
+                else:
+                    raise ValueError(f"Invalid flags for property {i}: 0x{prop_flags:04X}")
+
+                # Read property values
+                values = []
+                for j in range(array_count):
+                    value = self._read_property_value(data, offset, prop_type)
+                    values.append(value)
+                    # Update offset based on type size
+                    offset += self._get_property_type_size(prop_type)
+
+                properties[prop_id] = (prop_type, values if is_array else values[0])
+
+        except Exception as e:
+            raise ValueError(f"Failed to parse property file: {str(e)}")
+
+        return properties
+
+    def _read_property_value(self, data, offset, prop_type):
+        """Read a single property value based on type."""
+        import struct
+
+        try:
+            if prop_type == 0x0000:  # Boolean
+                return bool(struct.unpack('<I', data[offset:offset+4])[0])
+            elif prop_type == 0x0001:  # Integer
+                return struct.unpack('<i', data[offset:offset+4])[0]
+            elif prop_type == 0x0002:  # Float
+                return struct.unpack('<f', data[offset:offset+4])[0]
+            elif prop_type == 0x0003:  # String
+                # For strings, we need to read until null terminator
+                end_pos = data.find(b'\x00', offset)
+                if end_pos == -1:
+                    end_pos = len(data)
+                return data[offset:end_pos].decode('utf-8', errors='replace')
+            elif prop_type == 0x0004:  # Vector2
+                x = struct.unpack('<f', data[offset:offset+4])[0]
+                y = struct.unpack('<f', data[offset+4:offset+8])[0]
+                return f"({x}, {y})"
+            elif prop_type == 0x0005:  # Vector3
+                x = struct.unpack('<f', data[offset:offset+4])[0]
+                y = struct.unpack('<f', data[offset+4:offset+8])[0]
+                z = struct.unpack('<f', data[offset+8:offset+12])[0]
+                return f"({x}, {y}, {z})"
+            elif prop_type == 0x0006:  # Vector4/Color
+                r = struct.unpack('<f', data[offset:offset+4])[0]
+                g = struct.unpack('<f', data[offset+4:offset+8])[0]
+                b = struct.unpack('<f', data[offset+8:offset+12])[0]
+                a = struct.unpack('<f', data[offset+12:offset+16])[0]
+                return f"({r}, {g}, {b}, {a})"
+            elif prop_type == 0x0007:  # Key (resource key)
+                group = struct.unpack('<I', data[offset:offset+4])[0]
+                instance = struct.unpack('<I', data[offset+4:offset+8])[0]
+                type_id = struct.unpack('<I', data[offset+8:offset+12])[0]
+                return f"{group:08X}!{instance:08X}.{type_id:08X}"
+            else:
+                # Unknown type - return hex
+                size = self._get_property_type_size(prop_type)
+                if size > 0 and offset + size <= len(data):
+                    hex_data = ' '.join(f'{b:02X}' for b in data[offset:offset+size])
+                    return f"Unknown type 0x{prop_type:04X}: {hex_data}"
+                else:
+                    return f"Unknown type 0x{prop_type:04X}"
+        except:
+            return f"Error reading type 0x{prop_type:04X}"
+
+    def _get_property_type_size(self, prop_type):
+        """Get the size in bytes for a property type."""
+        size_map = {
+            0x0000: 4,   # Boolean
+            0x0001: 4,   # Integer
+            0x0002: 4,   # Float
+            0x0003: 0,   # String (variable size)
+            0x0004: 8,   # Vector2
+            0x0005: 12,  # Vector3
+            0x0006: 16,  # Vector4/Color
+            0x0007: 12,  # Key
+        }
+        return size_map.get(prop_type, 4)  # Default to 4 bytes
 
     def _preview_cell_file_detailed(self, file_data: bytes) -> str:
         """Preview cell/stage file with detailed parsing."""
@@ -1450,8 +1834,56 @@ Saved: {info['saved']}
                         pass
 
             except Exception as e:
-                self.show_error(f"Failed to preview file: {str(e)}")
-                self.status_var.set("Preview failed")
+                self.show_error(f"An error occurred: {str(e)}")
+                key = parse_resource_key(resource_key_str)
+                type_info = get_file_info_from_type(key.type_id)
+                extension, category, description = type_info
+
+                # Extract file content to memory
+                import tempfile
+                import os
+
+                # Create a temporary file to extract to
+                with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                    temp_path = temp_file.name
+
+                try:
+                    success = self.current_dbpf.extract_file(key, temp_path)
+                    if not success:
+                        self.show_error("Failed to extract file for preview.")
+                        return
+
+                    # Read the file content
+                    with open(temp_path, 'rb') as f:
+                        file_data = f.read()
+
+                    # Use appropriate preview method based on file type
+                    preview_content = self._generate_preview_content(file_data, extension, category, key)
+
+                    # Update preview text
+                    self.preview_text.config(state=tk.NORMAL)
+                    self.preview_text.delete(1.0, tk.END)
+                    self.preview_text.insert(1.0, preview_content)
+                    self.preview_text.config(state=tk.DISABLED)
+
+                    # Update info label
+                    self.preview_info_var.set(f"Previewing: {extension.upper()} file ({category}) - {len(file_data)} bytes")
+
+                    # Switch to appropriate tab based on file type
+                    tab_index = self._get_appropriate_tab(extension)
+                    self.preview_notebook.select(tab_index)
+
+                    self.status_var.set(f"Preview loaded for {resource_key_str}")
+
+                except Exception as e:
+                    self.show_error(f"Failed to preview file: {str(e)}")
+                    self.status_var.set("Preview failed")
+                finally:
+                    # Clean up temp file
+                    try:
+                        os.unlink(temp_path)
+                    except:
+                        pass
 
         thread = threading.Thread(target=preview_task, daemon=True)
         thread.start()

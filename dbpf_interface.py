@@ -121,6 +121,48 @@ class DBPFInterface:
             print(f"Error extracting {resource_key}: {e}")
             return False
 
+    def extract_file_to_stream(self, resource_key: ResourceKey, stream) -> bool:
+        """
+        Extract a specific file by resource key to a stream.
+
+        Args:
+            resource_key: The resource key of the file to extract
+            stream: A file-like object to write to
+
+        Returns:
+            True if extraction successful, False otherwise
+        """
+        self.load()
+
+        # Find the item
+        item = None
+        for dbpf_item in self.dbpf.index.items:
+            if dbpf_item.name.is_equivalent(resource_key):
+                item = dbpf_item
+                break
+
+        if not item:
+            print(f"File not found: {resource_key}")
+            return False
+
+        try:
+            with open(self.dbpf_path, 'rb') as f:
+                f.seek(item.chunk_offset)
+
+                if item.is_compressed:
+                    from dbpf_unpacker import RefPackCompression
+                    compressed_data = f.read(item.compressed_size)
+                    data = RefPackCompression.decompress_fast(compressed_data)
+                else:
+                    data = f.read(item.mem_size)
+
+            stream.write(data)
+            return True
+
+        except Exception as e:
+            print(f"Error extracting {resource_key}: {e}")
+            return False
+
     def extract_all(self, output_dir: str, verbose: bool = False) -> int:
         """
         Extract all files to a directory.
