@@ -40,32 +40,35 @@ def test_imports():
         return False
 
 
-def test_basic_functionality():
-    """Test basic DBPF functionality."""
-    print("\nTesting basic functionality...")
+def test_type_mappings():
+    """Test the file type mapping system."""
+    print("\nTesting file type mappings...")
 
     try:
-        from dbpf_interface import ResourceKey, parse_resource_key
+        from dbpf_explorer import get_file_info_from_type, generate_readable_filename, parse_resource_key, ResourceKey
 
-        # Test ResourceKey creation
-        key = ResourceKey(0x12345678, 0x9ABCDEF0, 0x11111111)
-        print(f"✓ ResourceKey created: {key}")
+        # Test known type ID
+        type_info = get_file_info_from_type(0x2F4E681C)  # PNG texture
+        assert type_info[0] == 'png', f"Expected 'png', got {type_info[0]}"
+        assert type_info[1] == 'Texture', f"Expected 'Texture', got {type_info[1]}"
+        print("✓ PNG texture type mapping works")
 
-        # Test parsing
-        parsed = parse_resource_key("12345678!9ABCDEF0.11111111")
-        print(f"✓ Resource key parsed: {parsed}")
+        # Test unknown type ID
+        type_info = get_file_info_from_type(0xFFFFFFFF)
+        assert type_info[0] == 'dat', f"Expected 'dat', got {type_info[0]}"
+        assert 'Unknown' in type_info[2], f"Expected 'Unknown' in description, got {type_info[2]}"
+        print("✓ Unknown type mapping works")
 
-        # Test equivalence
-        if key.is_equivalent(parsed):
-            print("✓ Resource key equivalence works")
-        else:
-            print("✗ Resource key equivalence failed")
-            return False
+        # Test filename generation
+        key = ResourceKey(0x12345678, 0x9ABCDEF0, 0x2F4E681C)
+        readable_name = generate_readable_filename(key, type_info)
+        assert '.png' in readable_name, f"Expected .png extension, got {readable_name}"
+        print(f"✓ Readable filename generation works: {readable_name}")
 
         return True
 
     except Exception as e:
-        print(f"✗ Functionality test failed: {e}")
+        print(f"✗ Type mapping test failed: {e}")
         return False
 
 
@@ -109,6 +112,9 @@ def main():
         success = False
 
     if not test_basic_functionality():
+        success = False
+
+    if not test_type_mappings():
         success = False
 
     if not test_gui_classes():

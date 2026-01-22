@@ -34,6 +34,78 @@ except ImportError as e:
     print(f"Warning: DBPF modules not available: {e}")
 
 
+# Spore file type mappings
+SPORE_FILE_TYPES = {
+    # Common Spore file types
+    0x2F4E681C: ('png', 'Texture', 'PNG Texture'),
+    0x2F7D0004: ('rw4', 'Model', 'RW4 Model'),
+    0x2F7D0002: ('prop', 'Property', 'Property File'),
+    0x2F4E681B: ('dds', 'DDS Texture', 'DDS Texture'),
+    0x2F4E681D: ('png', 'PNG Texture', 'PNG Texture'),
+    0x00B1B104: ('tga', 'TGA Texture', 'TGA Texture'),
+    0x00B1B105: ('tga', 'TGA Texture', 'TGA Texture'),
+
+    # Audio files
+    0x8C0A3F5C: ('ogg', 'Audio', 'OGG Audio'),
+    0x8C0A3F5D: ('wav', 'Audio', 'WAV Audio'),
+
+    # Text files
+    0x00B1B103: ('txt', 'Text', 'Plain Text'),
+    0x00B1B106: ('xml', 'XML', 'XML File'),
+
+    # Animation files
+    0x8C0A3F5E: ('animation', 'Animation', 'Animation File'),
+
+    # Effect files
+    0x00B1B107: ('eff', 'Effect', 'Effect File'),
+
+    # Other known types
+    0x2F4E681E: ('dat', 'Data', 'Data File'),
+    0x2F4E681F: ('dat', 'Data', 'Data File'),
+    0x2F7D0005: ('dat', 'Data', 'Data File'),
+}
+
+
+def get_file_info_from_type(type_id: int) -> Tuple[str, str, str]:
+    """
+    Get file extension, category, and description from type ID.
+
+    Args:
+        type_id: The file type ID
+
+    Returns:
+        Tuple of (extension, category, description)
+    """
+    if type_id in SPORE_FILE_TYPES:
+        return SPORE_FILE_TYPES[type_id]
+    else:
+        return ('dat', 'Unknown', f'Unknown Type (0x{type_id:08X})')
+
+
+def generate_readable_filename(resource_key: ResourceKey, type_info: Tuple[str, str, str]) -> str:
+    """
+    Generate a human-readable filename from resource key and type info.
+
+    Args:
+        resource_key: The resource key
+        type_info: Tuple of (extension, category, description)
+
+    Returns:
+        A readable filename
+    """
+    extension, category, description = type_info
+
+    # Create a readable name based on the resource key
+    group_hex = f"{resource_key.group_id:08X}"
+    instance_hex = f"{resource_key.instance_id:08X}"
+    type_hex = f"{resource_key.type_id:08X}"
+
+    # Try to make it more readable - use last 4 digits of instance for uniqueness
+    short_instance = f"{resource_key.instance_id & 0xFFFF:04X}"
+
+    return f"{category}_{short_instance}_{type_hex}.{extension}"
+
+
 class DBPFExplorer:
     """Main application class for the DBPF Explorer GUI."""
 
@@ -159,18 +231,21 @@ class DBPFExplorer:
         tree_container.pack(fill=tk.BOTH, expand=True)
 
         # Treeview
-        columns = ('size', 'compressed', 'type')
+        columns = ('size', 'compressed', 'type', 'readable_name')
         self.file_tree = ttk.Treeview(tree_container, columns=columns, show='headings', height=20)
 
         # Configure columns
+        self.file_tree.heading('#0', text='Resource Key')
+        self.file_tree.heading('readable_name', text='Name')
         self.file_tree.heading('size', text='Size')
         self.file_tree.heading('compressed', text='Compressed')
         self.file_tree.heading('type', text='Type')
 
-        self.file_tree.column('#0', width=400, minwidth=200)
+        self.file_tree.column('#0', width=250, minwidth=200)
+        self.file_tree.column('readable_name', width=200, minwidth=150)
         self.file_tree.column('size', width=80, minwidth=60)
         self.file_tree.column('compressed', width=80, minwidth=60)
-        self.file_tree.column('type', width=60, minwidth=50)
+        self.file_tree.column('type', width=100, minwidth=80)
 
         # Scrollbars
         v_scrollbar = ttk.Scrollbar(tree_container, orient=tk.VERTICAL, command=self.file_tree.yview)
@@ -210,6 +285,12 @@ class DBPFExplorer:
 
         self.setup_details_tab(details_frame)
 
+        # File preview tab
+        preview_frame = ttk.Frame(self.details_notebook)
+        self.details_notebook.add(preview_frame, text="File Preview")
+
+        self.setup_preview_tab(preview_frame)
+
         # Output tab
         output_frame = ttk.Frame(self.details_notebook)
         self.details_notebook.add(output_frame, text="Output")
@@ -239,6 +320,29 @@ class DBPFExplorer:
 
         self.details_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         details_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+    def setup_preview_tab(self, parent):
+        """Set up the file preview tab."""
+        # Preview controls
+        controls_frame = ttk.Frame(parent)
+        controls_frame.pack(fill=tk.X, pady=(0, 5))
+
+        ttk.Button(controls_frame, text="Preview Selected File", command=self.preview_selected_file).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(controls_frame, text="Clear Preview", command=self.clear_preview).pack(side=tk.LEFT)
+
+        # Preview display
+        preview_frame = ttk.LabelFrame(parent, text="File Content Preview", padding=5)
+        preview_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.preview_text = tk.Text(preview_frame, height=20, wrap=tk.NONE, state=tk.DISABLED, font=('Courier', 10))
+        preview_scroll_y = ttk.Scrollbar(preview_frame, command=self.preview_text.yview)
+        preview_scroll_x = ttk.Scrollbar(preview_frame, command=self.preview_text.xview, orient=tk.HORIZONTAL)
+
+        self.preview_text.configure(yscrollcommand=preview_scroll_y.set, xscrollcommand=preview_scroll_x.set)
+
+        self.preview_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        preview_scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
+        preview_scroll_x.pack(side=tk.BOTTOM, fill=tk.X)
 
     def setup_output_tab(self, parent):
         """Set up the output tab."""
@@ -312,13 +416,26 @@ class DBPFExplorer:
                     # Parse file info
                     parts = file_info.split(' | ')
                     if len(parts) >= 3:
-                        resource_key = parts[0]
+                        resource_key_str = parts[0]
                         compressed = parts[1]
                         size_info = parts[2]
 
-                        # Insert into tree
-                        self.file_tree.insert('', 'end', text=resource_key,
-                                            values=(size_info, compressed, 'file'))
+                        # Parse resource key to get type info
+                        try:
+                            resource_key = parse_resource_key(resource_key_str)
+                            type_info = get_file_info_from_type(resource_key.type_id)
+                            extension, category, description = type_info
+
+                            # Generate readable name
+                            readable_name = generate_readable_filename(resource_key, type_info)
+
+                            # Insert into tree with additional info
+                            self.file_tree.insert('', 'end', text=resource_key_str,
+                                                values=(readable_name, size_info, compressed, description))
+                        except Exception:
+                            # Fallback for parsing errors
+                            self.file_tree.insert('', 'end', text=resource_key_str,
+                                                values=('Unknown', size_info, compressed, 'Unknown Type'))
 
                 self.status_var.set(f"Loaded {total_files} files from {os.path.basename(filepath)}")
                 self.log_output(f"Successfully loaded DBPF file: {filepath}")
@@ -398,11 +515,135 @@ Saved: {info['saved']}
                 # Switch to details tab
                 self.details_notebook.select(0)
 
+                # Also try to show a quick preview if file is small
+                try:
+                    key = parse_resource_key(resource_key_str)
+                    file_info = self.current_dbpf.get_file_info(key)
+                    if file_info and file_info['uncompressed_size'] < 10240:  # Less than 10KB
+                        # Auto-preview small files
+                        self.preview_selected_file()
+                except:
+                    pass  # Ignore preview errors for auto-preview
+
             else:
                 self.show_error("Could not get file information.")
 
         except Exception as e:
             self.show_error(f"Failed to get file info: {str(e)}")
+
+    def preview_selected_file(self):
+        """Preview the content of the selected file."""
+        selection = self.file_tree.selection()
+        if not selection or not self.current_dbpf:
+            messagebox.showwarning("No Selection", "Please select a file to preview.")
+            return
+
+        item = self.file_tree.item(selection[0])
+        resource_key_str = item['text']
+
+        self.status_var.set(f"Loading preview for {resource_key_str}...")
+
+        def preview_task():
+            try:
+                key = parse_resource_key(resource_key_str)
+
+                # Extract file content to memory
+                from io import BytesIO
+                import tempfile
+                import os
+
+                # Create a temporary file to extract to
+                with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                    temp_path = temp_file.name
+
+                try:
+                    success = self.current_dbpf.extract_file(key, temp_path)
+                    if not success:
+                        self.show_error("Failed to extract file for preview.")
+                        return
+
+                    # Read the file content
+                    with open(temp_path, 'rb') as f:
+                        file_data = f.read()
+
+                    # Try to determine if it's text or binary
+                    try:
+                        # Try to decode as UTF-8
+                        text_content = file_data.decode('utf-8', errors='replace')
+
+                        # Check if it looks like binary data (has null bytes or high ratio of non-printable chars)
+                        if '\x00' in text_content[:1024] or self._is_binary_data(file_data[:1024]):
+                            # Binary file - show hex dump
+                            hex_content = self._create_hex_dump(file_data[:2048])  # Limit preview size
+                            preview_content = f"Binary file ({len(file_data)} bytes)\n\nHex dump (first 2048 bytes):\n\n{hex_content}"
+                        else:
+                            # Text file - show content
+                            preview_content = f"Text file ({len(file_data)} bytes)\n\nContent:\n\n{text_content[:8192]}"  # Limit preview size
+
+                    except UnicodeDecodeError:
+                        # Definitely binary - show hex dump
+                        hex_content = self._create_hex_dump(file_data[:2048])
+                        preview_content = f"Binary file ({len(file_data)} bytes)\n\nHex dump (first 2048 bytes):\n\n{hex_content}"
+
+                    # Update preview text
+                    self.preview_text.config(state=tk.NORMAL)
+                    self.preview_text.delete(1.0, tk.END)
+                    self.preview_text.insert(1.0, preview_content)
+                    self.preview_text.config(state=tk.DISABLED)
+
+                    # Switch to preview tab
+                    self.details_notebook.select(1)
+
+                    self.status_var.set(f"Preview loaded for {resource_key_str}")
+
+                finally:
+                    # Clean up temp file
+                    try:
+                        os.unlink(temp_path)
+                    except:
+                        pass
+
+            except Exception as e:
+                self.show_error(f"Failed to preview file: {str(e)}")
+                self.status_var.set("Preview failed")
+
+        thread = threading.Thread(target=preview_task, daemon=True)
+        thread.start()
+
+    def _is_binary_data(self, data: bytes) -> bool:
+        """Check if data appears to be binary."""
+        if not data:
+            return False
+
+        # Count printable characters
+        printable = sum(1 for byte in data if 32 <= byte <= 126 or byte in (9, 10, 13))
+        return printable / len(data) < 0.7  # Less than 70% printable = likely binary
+
+    def _create_hex_dump(self, data: bytes, bytes_per_line: int = 16) -> str:
+        """Create a hex dump of binary data."""
+        lines = []
+        for i in range(0, len(data), bytes_per_line):
+            chunk = data[i:i + bytes_per_line]
+
+            # Hex part
+            hex_part = ' '.join(f'{b:02X}' for b in chunk)
+
+            # ASCII part
+            ascii_part = ''.join(chr(b) if 32 <= b <= 126 else '.' for b in chunk)
+
+            # Pad hex part if necessary
+            if len(chunk) < bytes_per_line:
+                hex_part += '   ' * (bytes_per_line - len(chunk))
+
+            lines.append(f'{i:08X}: {hex_part} | {ascii_part}')
+
+        return '\n'.join(lines)
+
+    def clear_preview(self):
+        """Clear the file preview."""
+        self.preview_text.config(state=tk.NORMAL)
+        self.preview_text.delete(1.0, tk.END)
+        self.preview_text.config(state=tk.DISABLED)
 
     def extract_selected(self):
         """Extract the selected file."""
@@ -413,10 +654,12 @@ Saved: {info['saved']}
 
         item = self.file_tree.item(selection[0])
         resource_key_str = item['text']
+        readable_name = item['values'][0] if item['values'] else "extracted_file"
 
-        # Ask for output location
+        # Ask for output location with suggested filename
         output_file = filedialog.asksaveasfilename(
             title="Save Extracted File",
+            initialfile=readable_name,
             defaultextension="",
             filetypes=[("All files", "*.*")]
         )
@@ -524,14 +767,25 @@ Saved: {info['saved']}
             for file_info in files:
                 parts = file_info.split(' | ')
                 if len(parts) >= 3:
-                    resource_key = parts[0]
+                    resource_key_str = parts[0]
                     compressed = parts[1]
                     size_info = parts[2]
 
-                    # Check if matches search
-                    if search_term in resource_key.lower():
-                        self.file_tree.insert('', 'end', text=resource_key,
-                                            values=(size_info, compressed, 'file'))
+                    # Parse to get additional info
+                    try:
+                        key = parse_resource_key(resource_key_str)
+                        type_info = get_file_info_from_type(key.type_id)
+                        readable_name = generate_readable_filename(key, type_info)
+                        extension, category, description = type_info
+                    except:
+                        readable_name = "Unknown"
+                        description = "Unknown Type"
+
+                    # Check if matches search (in resource key, readable name, or type)
+                    searchable_text = f"{resource_key_str} {readable_name} {description}".lower()
+                    if search_term in searchable_text:
+                        self.file_tree.insert('', 'end', text=resource_key_str,
+                                            values=(readable_name, size_info, compressed, description))
 
         except Exception as e:
             self.log_output(f"Search error: {str(e)}")
@@ -649,10 +903,20 @@ class BatchExtractDialog(tk.Toplevel):
             for file_info in files[:50]:  # Limit to first 50 for performance
                 parts = file_info.split(' | ')
                 if len(parts) >= 1:
-                    resource_key = parts[0]
+                    resource_key_str = parts[0]
+
+                    # Parse to get readable name
+                    try:
+                        key = parse_resource_key(resource_key_str)
+                        type_info = get_file_info_from_type(key.type_id)
+                        readable_name = generate_readable_filename(key, type_info)
+                        display_name = f"{readable_name} ({resource_key_str})"
+                    except:
+                        display_name = resource_key_str
+
                     var = tk.BooleanVar()
-                    self.check_vars[resource_key] = var
-                    ttk.Checkbutton(scrollable_frame, text=resource_key, variable=var).pack(anchor=tk.W)
+                    self.check_vars[resource_key_str] = var
+                    ttk.Checkbutton(scrollable_frame, text=display_name, variable=var).pack(anchor=tk.W)
         except Exception as e:
             ttk.Label(scrollable_frame, text=f"Error loading files: {str(e)}").pack()
 
@@ -718,12 +982,16 @@ class BatchExtractDialog(tk.Toplevel):
                 for i, resource_key_str in enumerate(selected_files):
                     try:
                         key = parse_resource_key(resource_key_str)
-                        # Create output filename
-                        output_file = os.path.join(output_dir, f"{resource_key_str.replace('!', '_').replace('.', '_')}.dat")
+                        # Get type info and generate readable filename
+                        type_info = get_file_info_from_type(key.type_id)
+                        readable_name = generate_readable_filename(key, type_info)
+
+                        # Create output filename with proper extension
+                        output_file = os.path.join(output_dir, readable_name)
                         success = self.dbpf.extract_file(key, output_file)
                         if success:
                             success_count += 1
-                            self.main_app.log_output(f"✓ Extracted {resource_key_str}")
+                            self.main_app.log_output(f"✓ Extracted {readable_name}")
                         else:
                             self.main_app.log_output(f"✗ Failed {resource_key_str}")
                     except Exception as e:

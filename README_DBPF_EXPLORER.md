@@ -16,13 +16,17 @@ A complete standalone Python GUI application for working with DBPF (Database Pac
 - Extract individual files with a double-click
 - Batch extract multiple selected files
 - Extract entire archives to directories
-- Automatic output directory creation
+- **Human-readable filenames** with proper extensions (.png, .wav, .prop, etc.)
+- **Automatic file type detection** based on Spore type IDs
+- Progress bars and status updates
 
 ### ℹ️ **File Information**
 - Detailed metadata for each file (offsets, sizes, compression)
 - Resource key parsing and display
-- File type identification
-- Compression status and ratios
+- **File content preview** with automatic text/binary detection
+- **Hex dump viewer** for binary files
+- File type identification and categorization
+- Human-readable filenames with proper extensions
 
 ### 🔍 **Search & Filter**
 - Real-time search through file lists
@@ -66,15 +70,23 @@ sudo cp dbpf-explorer.desktop /usr/share/applications/
 3. The application will load and display all files in the archive
 
 ### Exploring Contents
-- **File Tree**: Shows all files with resource keys
+- **File Tree**: Shows all files with resource keys and human-readable names
 - **Archive Info**: Displays format, version, and statistics
 - **File Details**: Click any file to see detailed information
-- **Search**: Use the search box to filter files
+- **File Preview**: View file contents directly in the interface (text/hex dump)
+- **Search**: Use the search box to filter by name, type, or resource key
 
 ### Extracting Files
-- **Single File**: Double-click a file or use "Extract Selected"
-- **Multiple Files**: Use "Batch Extract" for multiple selections
+- **Single File**: Double-click a file or use "Extract Selected" (saves with proper filename)
+- **Multiple Files**: Use "Batch Extract" for multiple selections (with readable names)
 - **All Files**: Use "Extract All" to unpack the entire archive
+- **Smart Naming**: Files are automatically saved with human-readable names and correct extensions
+
+### File Preview
+- **Text Files**: View content directly in the interface
+- **Binary Files**: See hex dump with ASCII representation
+- **Auto-Detection**: Automatically determines if file is text or binary
+- **Size Limited**: Previews first 8KB of text files, 2KB hex dump of binary files
 
 ### Resource Keys
 Files are identified by resource keys in the format:
