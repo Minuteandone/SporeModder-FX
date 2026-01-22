@@ -34,35 +34,171 @@ except ImportError as e:
     print(f"Warning: DBPF modules not available: {e}")
 
 
-# Spore file type mappings
+# Spore file type mappings - Based on reg_type.txt from Java implementation
 SPORE_FILE_TYPES = {
-    # Common Spore file types
+    # Core Spore file types
+    0x00B1B104: ('prop', 'Property', 'Property File'),
+    0x00E6BCE5: ('gmdl', 'Model', '3D Model'),
+    0x011989B7: ('plt', 'Plant', 'Plant Data'),
     0x2F4E681C: ('png', 'Texture', 'PNG Texture'),
-    0x2F7D0004: ('rw4', 'Model', 'RW4 Model'),
-    0x2F7D0002: ('prop', 'Property', 'Property File'),
-    0x2F4E681B: ('dds', 'DDS Texture', 'DDS Texture'),
-    0x2F4E681D: ('png', 'PNG Texture', 'PNG Texture'),
-    0x00B1B104: ('tga', 'TGA Texture', 'TGA Texture'),
-    0x00B1B105: ('tga', 'TGA Texture', 'TGA Texture'),
+    0x2F4E681B: ('rw4', 'Model', 'RW4 Model'),
+    0x2F7D0002: ('jpeg', 'Texture', 'JPEG Texture'),
+    0x2F7D0004: ('png', 'Texture', 'PNG Texture'),
+    0x2F7D0005: ('bmp', 'Texture', 'BMP Texture'),
+    0x2F7D0006: ('tga', 'Texture', 'TGA Texture'),
+    0x2F7D0007: ('gif', 'Texture', 'GIF Texture'),
+    0x17952E6C: ('dds', 'Texture', 'DDS Texture'),
+    0x276CA4B9: ('ttf', 'Font', 'TrueType Font'),
+    0x27C5CEF: ('ttf', 'Font', 'TrueType Font'),
+    0x2FAC0B6: ('locale', 'Localization', 'Locale Data'),
+    0x4AEB6BC6: ('tlsa', 'Animation', 'Animation Data'),
+    0x7C19AA7A: ('pctp', 'Particle', 'Particle System'),
+    0xCF6C21B8: ('xml', 'Text', 'XML File'),
+    0xEFBDA3FF: ('layout', 'UI', 'UI Layout'),
+    0x12952634: ('dat', 'Data', 'Data File'),
+    0x250FE9A2: ('spui', 'UI', 'Spore UI'),
+    0x2B6CAB5F: ('txt', 'Text', 'Text File'),
+    0x37979F71: ('cfg', 'Config', 'Configuration'),
+    0x617715C4: ('py', 'Script', 'Python Script'),
+    0xDFAD9F51: ('cell', 'Cell', 'Cell Stage'),
+    0xEE17C6AD: ('animation', 'Animation', 'Animation'),
+    0x55ADA24: ('cnv', 'Conversion', 'Conversion Data'),
+    0xF43029A: ('creaturedata', 'Creature', 'Creature Data'),
+    0x47B8300: ('lvl', 'Level', 'Level Data'),
+    0x4805684: ('adv', 'Advection', 'Advection Data'),
 
     # Audio files
-    0x8C0A3F5C: ('ogg', 'Audio', 'OGG Audio'),
-    0x8C0A3F5D: ('wav', 'Audio', 'WAV Audio'),
-
-    # Text files
-    0x00B1B103: ('txt', 'Text', 'Plain Text'),
-    0x00B1B106: ('xml', 'XML', 'XML File'),
-
-    # Animation files
-    0x8C0A3F5E: ('animation', 'Animation', 'Animation File'),
+    0x2B9F662: ('prop', 'Audio Property', 'Audio Property'),
+    0x42C9CBB: ('snd', 'Audio', 'Sound File'),
+    0x2C9EFF2: ('submix', 'Audio', 'Audio Submix'),
+    0x29E333B: ('voice', 'Audio', 'Voice Audio'),
 
     # Effect files
-    0x00B1B107: ('eff', 'Effect', 'Effect File'),
+    0x497767B9: ('pfx', 'Effect', 'Particle Effect'),
+    0x433FB70C: ('effectmap', 'Effect', 'Effect Map'),
+    0xEA5118B0: ('effdir', 'Effect', 'Effect Directory'),
 
-    # Other known types
-    0x2F4E681E: ('dat', 'Data', 'Data File'),
-    0x2F4E681F: ('dat', 'Data', 'Data File'),
-    0x2F7D0005: ('dat', 'Data', 'Data File'),
+    # Model files
+    0x1C135DA: ('gmsh', 'Model', 'Game Mesh'),
+    0x72047DE2: ('bmdl', 'Model', 'Building Model'),
+
+    # Animation files
+    0x3F9C28B5: ('ani', 'Animation', 'Animation File'),
+    0x448AE7E2: ('hkx', 'Animation', 'Havok Animation'),
+
+    # UI files
+    0x250FE9A2: ('spui', 'UI', 'Spore UI'),
+    0xEFBDA3FF: ('layout', 'UI', 'UI Layout'),
+
+    # Script/Config files
+    0x248F226: ('css', 'Style', 'CSS Stylesheet'),
+    0x65266B7: ('xhtml', 'Text', 'XHTML File'),
+    0xDD6233D6: ('html', 'Text', 'HTML File'),
+    0x1E639C34: ('xml', 'Text', 'XML File'),
+    0x3681D755: ('lua', 'Script', 'Lua Script'),
+    0x67771F5C: ('js', 'Script', 'JavaScript'),
+
+    # Data files
+    0x1AD2416: ('creature_traits', 'Data', 'Creature Traits'),
+    0x1AD2417: ('building_traits', 'Data', 'Building Traits'),
+    0x1AD2418: ('vehicle_traits', 'Data', 'Vehicle Traits'),
+    0x2D5C9AF: ('summary', 'Data', 'Summary'),
+    0x30BDEE3: ('pollen_metadata', 'Data', 'Pollen Metadata'),
+    0x376C3DA: ('hm', 'Data', 'Height Map'),
+    0x472329B: ('arth', 'Data', 'Arth Data'),
+    0x5C74D18B: ('density', 'Data', 'Density Data'),
+    0x617715D9: ('pd', 'Data', 'PD Data'),
+    0x9B8E862F: ('world', 'Data', 'World Data'),
+    0x76E1259D: ('physx_bin', 'Physics', 'PhysX Binary'),
+    0x7EAB18FD: ('physx_xml', 'Physics', 'PhysX XML'),
+    0x278CF8F2: ('cfx', 'Effect', 'CFX Effect'),
+    0x1A527DB: ('snr', 'Audio', 'SNR Audio'),
+    0x1EEF63A: ('sns', 'Audio', 'SNS Audio'),
+    0x469A3F7: ('smt', 'Audio', 'SMT Audio'),
+    0x22D2C83: ('pdr', 'Data', 'PDR Data'),
+    0x6EFC6AA: ('package', 'Data', 'Package'),
+    0x3055F61: ('instrument', 'Audio', 'Instrument'),
+    0x497925E: ('mode', 'Data', 'Mode'),
+    0x3F51892: ('children', 'Data', 'Children'),
+    0x4B9EF6DC: ('structure', 'Data', 'Structure'),
+    0xDA141C1B: ('populate', 'Data', 'Populate'),
+    0xD92AF091: ('loottable', 'Data', 'Loot Table'),
+    0xDBA35AE2: ('look_algorithm', 'Data', 'Look Algorithm'),
+    0x612B3191: ('backgroundmap', 'Data', 'Background Map'),
+    0xF9C3D770: ('random_creature', 'Creature', 'Random Creature'),
+    0x8C042499: ('look_table', 'Data', 'Look Table'),
+    0x2A3CE5B7: ('globals', 'Data', 'Globals'),
+    0x76A8F7D8: ('geo', 'Data', 'Geometry'),
+    0x2393756: ('cur', 'Data', 'Cursor'),
+    0x339479: ('animstate', 'Animation', 'Animation State'),
+
+    # Binary data files
+    0x1A99B06B: ('bem', 'Data', 'BEM Data'),
+    0x1E99B626: ('bat', 'Data', 'BAT Data'),
+    0x1F639D98: ('xls', 'Spreadsheet', 'Excel File'),
+    0x2399BE55: ('bld', 'Building', 'Building Data'),
+    0x24682294: ('vcl', 'Vehicle', 'Vehicle Data'),
+    0x25DF0112: ('gait', 'Animation', 'Gait Data'),
+    0x2B978C46: ('crt', 'Data', 'CRT Data'),
+    0x376840D7: ('vp6', 'Video', 'VP6 Video'),
+    0x3C77532E: ('psd', 'Image', 'Photoshop File'),
+    0x3C7E0F63: ('mcl', 'Data', 'MCL Data'),
+    0x3D97A8E4: ('cll', 'Data', 'CLL Data'),
+    0x438F6347: ('flr', 'Data', 'FLR Data'),
+    0x476A98C7: ('ufo', 'Data', 'UFO Data'),
+    0x477764F5: ('pdn', 'Image', 'Paint.NET File'),
+    0x2081B4F5: ('log', 'Text', 'Log File'),
+    0x1E99B639: ('bak', 'Backup', 'Backup File'),
+    0x2699C284: ('bin', 'Binary', 'Binary Data'),
+    0x1999AE0B: ('bfx', 'Effect', 'BFX Effect'),
+    0x4F684A4: ('cmp', 'Data', 'CMP Data'),
+
+    # Special binary files
+    0xA11D3144: ('markerset.bin', 'Data', 'Marker Set'),
+    0x76A8F7D8: ('noun.bin', 'Data', 'Noun Data'),
+    0x92EA4AAC: ('servereventdef.bin', 'Data', 'Server Event Def'),
+    0x17BBCE29: ('characteranimation.bin', 'Animation', 'Character Animation'),
+    0xEEEB0E31: ('aidefinition.bin', 'AI', 'AI Definition'),
+    0x474940A5: ('classattributes.bin', 'Data', 'Class Attributes'),
+    0xD117AFCA: ('nonplayerclass.bin', 'Data', 'Non-Player Class'),
+    0x9F8087D5: ('condition.bin', 'Data', 'Condition'),
+    0x30728CE7: ('phase.bin', 'Data', 'Phase'),
+    0x20426A63: ('crystaltuning.bin', 'Data', 'Crystal Tuning'),
+    0xE5C2D838: ('elitenpcglobals.bin', 'Data', 'Elite NPC Globals'),
+    0x7CA6C6C9: ('npcaffix.bin', 'Data', 'NPC Affix'),
+    0x36201B51: ('magicnumbers.bin', 'Data', 'Magic Numbers'),
+    0x8E94F44C: ('difficultytuning.bin', 'Data', 'Difficulty Tuning'),
+    0xA8A25294: ('chainlevels.bin', 'Data', 'Chain Levels'),
+    0xA38FA119: ('sectionconfig.bin', 'Data', 'Section Config'),
+    0x9342C4D3: ('directortuning.bin', 'Data', 'Director Tuning'),
+    0xAAED883B: ('charactertype.bin', 'Data', 'Character Type'),
+    0x61BF29AA: ('lootpreferences.bin', 'Data', 'Loot Preferences'),
+    0x58E9A177: ('weapontuning.bin', 'Data', 'Weapon Tuning'),
+    0x534136B6: ('unlockstuning.bin', 'Data', 'Unlocks Tuning'),
+    0x60C1B295: ('spaceshiptuning.bin', 'Vehicle', 'Spaceship Tuning'),
+    0x1BCED3D7: ('lootrigblock.bin', 'Data', 'Loot Rig Block'),
+    0x1DFEA336: ('testasset.bin', 'Data', 'Test Asset'),
+    0x5CB9F7C7: ('affixtuning.bin', 'Data', 'Affix Tuning'),
+    0x6A1812C6: ('lootprefix.bin', 'Data', 'Loot Prefix'),
+    0x23EF98FD: ('pvplevels.bin', 'Data', 'PVP Levels'),
+    0x52D095F6: ('levelconfig.bin', 'Level', 'Level Config'),
+    0x68232164: ('levelobjectives.bin', 'Level', 'Level Objectives'),
+    0xB9193960: ('level.bin', 'Level', 'Level Data'),
+    0xBBA5400D: ('navpowertuning.bin', 'Data', 'Nav Power Tuning'),
+    0x447DC2E5: ('lootsuffix.bin', 'Data', 'Loot Suffix'),
+
+    # Special texture files
+    0xEF7D16E1: ('uitexture', 'Texture', 'UI Texture'),
+    0xDEAF6ADE: ('bak.png', 'Texture', 'Backup PNG'),
+    0xDC74130E: ('bak2.png', 'Texture', 'Backup PNG 2'),
+
+    # Special data files
+    0x2523258: ('formation', 'Data', 'Formation'),
+    0x24A0E52: ('trigger', 'Data', 'Trigger'),
+    0x1C3C4B3: ('trait_pill', 'Data', 'Trait Pill'),
+    0x2E5A9763: ('lrumetadata', 'Data', 'LRU Metadata'),
+    0x793F6424: ('blockinfo', 'Data', 'Block Info'),
+    0x366A930D: ('adv', 'Advection', 'Advection Data'),
 }
 
 
