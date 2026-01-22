@@ -10,9 +10,20 @@ Features:
 - Browse and explore DBPF archives
 - Extract individual files or entire archives
 - View detailed file information
+- Advanced preview system with specialized viewers:
+  • Image Viewer (requires PIL/Pillow): Zoom, pan, export images
+  • Property Viewer: Structured tree view of property files
+  • Audio Player (requires pygame/playsound): Play and export audio
+  • Enhanced text previews for cell files and creature data
 - Batch operations
 - Search and filter capabilities
 - Modern, user-friendly interface
+
+Dependencies:
+- tkinter (built-in)
+- PIL/Pillow (pip install Pillow) - for image viewing
+- pygame (pip install pygame) - for audio playback
+- playsound (pip install playsound) - alternative audio playback
 """
 
 import tkinter as tk
@@ -23,6 +34,28 @@ import sys
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 import time
+import tempfile
+import io
+
+# Try to import image/audio libraries
+try:
+    from PIL import Image, ImageTk
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
+    print("Warning: PIL not available. Image viewing will be limited.")
+
+try:
+    import pygame
+    HAS_PYGAME = True
+except ImportError:
+    HAS_PYGAME = False
+
+try:
+    import playsound
+    HAS_PLAYSOUND = True
+except ImportError:
+    HAS_PLAYSOUND = False
 
 # Import our DBPF functionality
 try:
@@ -459,8 +492,16 @@ class DBPFExplorer:
 
     def setup_preview_tab(self, parent):
         """Set up the file preview tab with enhanced preview capabilities."""
+        # Create notebook for different viewer types
+        self.preview_notebook = ttk.Notebook(parent)
+        self.preview_notebook.pack(fill=tk.BOTH, expand=True)
+
+        # Text preview tab
+        text_frame = ttk.Frame(self.preview_notebook)
+        self.preview_notebook.add(text_frame, text="Text Preview")
+
         # Preview controls
-        controls_frame = ttk.Frame(parent)
+        controls_frame = ttk.Frame(text_frame)
         controls_frame.pack(fill=tk.X, pady=(0, 5))
 
         ttk.Button(controls_frame, text="Preview Selected File", command=self.preview_selected_file).pack(side=tk.LEFT, padx=(0, 5))
@@ -472,8 +513,8 @@ class DBPFExplorer:
         info_label = ttk.Label(controls_frame, textvariable=self.preview_info_var, foreground="blue")
         info_label.pack(side=tk.LEFT, padx=(20, 0))
 
-        # Preview display
-        preview_frame = ttk.LabelFrame(parent, text="File Content Preview", padding=5)
+        # Text preview display
+        preview_frame = ttk.LabelFrame(text_frame, text="File Content Preview", padding=5)
         preview_frame.pack(fill=tk.BOTH, expand=True)
 
         self.preview_text = tk.Text(preview_frame, height=20, wrap=tk.NONE, state=tk.DISABLED, font=('Courier', 10))
@@ -485,6 +526,677 @@ class DBPFExplorer:
         self.preview_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         preview_scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
         preview_scroll_x.pack(side=tk.BOTTOM, fill=tk.X)
+
+        # Image viewer tab
+        if HAS_PIL:
+            self.setup_image_viewer_tab()
+
+        # Property viewer tab
+        self.setup_property_viewer_tab()
+
+        # Audio player tab
+        if HAS_PYGAME or HAS_PLAYSOUND:
+            self.setup_audio_player_tab()
+
+    def setup_image_viewer_tab(self):
+        """Set up the image viewer tab."""
+        image_frame = ttk.Frame(self.preview_notebook)
+        self.preview_notebook.add(image_frame, text="Image Viewer")
+
+        # Image controls
+        controls_frame = ttk.Frame(image_frame)
+        controls_frame.pack(fill=tk.X, pady=(0, 5))
+
+        ttk.Button(controls_frame, text="View Selected Image", command=self.view_selected_image).pack(side=tk.LEFT, padx=(0, 5))
+
+        # Zoom controls
+        ttk.Label(controls_frame, text="Zoom:").pack(side=tk.LEFT, padx=(20, 5))
+        self.zoom_var = tk.DoubleVar(value=1.0)
+        zoom_spin = tk.Spinbox(controls_frame, from_=0.1, to=5.0, increment=0.1, textvariable=self.zoom_var, width=5)
+        zoom_spin.pack(side=tk.LEFT, padx=(0, 5))
+        zoom_spin.bind('<KeyRelease>', lambda e: self.update_image_zoom())
+
+        ttk.Button(controls_frame, text="Fit to Window", command=self.fit_image_to_window).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(controls_frame, text="Export Image", command=self.export_image).pack(side=tk.LEFT)
+
+        # Image display area
+        image_display_frame = ttk.LabelFrame(image_frame, text="Image Display", padding=5)
+        image_display_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Canvas for image display
+        self.image_canvas = tk.Canvas(image_display_frame, bg='gray')
+        image_scroll_y = ttk.Scrollbar(image_display_frame, command=self.image_canvas.yview)
+        image_scroll_x = ttk.Scrollbar(image_display_frame, command=self.image_canvas.xview, orient=tk.HORIZONTAL)
+
+        self.image_canvas.configure(yscrollcommand=image_scroll_y.set, xscrollcommand=image_scroll_x.set)
+
+        self.image_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        image_scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
+        image_scroll_x.pack(side=tk.BOTTOM, fill=tk.X)
+
+        # Bind mouse wheel for zooming
+        self.image_canvas.bind('<MouseWheel>', self.on_image_mousewheel)
+        self.image_canvas.bind('<Button-4>', lambda e: self.zoom_image(1.1))  # Linux scroll up
+        self.image_canvas.bind('<Button-5>', lambda e: self.zoom_image(0.9))  # Linux scroll down
+
+        self.current_image = None
+        self.current_image_tk = None
+        self.image_zoom = 1.0
+
+    def setup_property_viewer_tab(self):
+        """Set up the property viewer tab."""
+        prop_frame = ttk.Frame(self.preview_notebook)
+        self.preview_notebook.add(prop_frame, text="Property Viewer")
+
+        # Property controls
+        controls_frame = ttk.Frame(prop_frame)
+        controls_frame.pack(fill=tk.X, pady=(0, 5))
+
+        ttk.Button(controls_frame, text="View Selected Property", command=self.view_selected_property).pack(side=tk.LEFT, padx=(0, 5))
+
+        # Property display area
+        prop_display_frame = ttk.LabelFrame(prop_frame, text="Property Structure", padding=5)
+        prop_display_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Treeview for property structure
+        self.prop_tree = ttk.Treeview(prop_display_frame)
+        prop_scroll_y = ttk.Scrollbar(prop_display_frame, command=self.prop_tree.yview)
+        prop_scroll_x = ttk.Scrollbar(prop_display_frame, command=self.prop_tree.xview, orient=tk.HORIZONTAL)
+
+        self.prop_tree.configure(yscrollcommand=prop_scroll_y.set, xscrollcommand=prop_scroll_x.set)
+
+        # Configure treeview columns
+        self.prop_tree.heading('#0', text='Property')
+        self.prop_tree.column('#0', width=300, minwidth=200)
+
+        self.prop_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        prop_scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
+        prop_scroll_x.pack(side=tk.BOTTOM, fill=tk.X)
+
+    def setup_audio_player_tab(self):
+        """Set up the audio player tab."""
+        audio_frame = ttk.Frame(self.preview_notebook)
+        self.preview_notebook.add(audio_frame, text="Audio Player")
+
+        # Audio controls
+        controls_frame = ttk.Frame(audio_frame)
+        controls_frame.pack(fill=tk.X, pady=(0, 5))
+
+        ttk.Button(controls_frame, text="Play Selected Audio", command=self.play_selected_audio).pack(side=tk.LEFT, padx=(0, 5))
+        self.play_button = ttk.Button(controls_frame, text="Stop", command=self.stop_audio, state=tk.DISABLED)
+        self.play_button.pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(controls_frame, text="Export Audio", command=self.export_audio).pack(side=tk.LEFT)
+
+        # Audio info display
+        info_frame = ttk.LabelFrame(audio_frame, text="Audio Information", padding=5)
+        info_frame.pack(fill=tk.X, pady=(0, 10))
+
+        self.audio_info_text = tk.Text(info_frame, height=6, wrap=tk.WORD, state=tk.DISABLED)
+        audio_info_scroll = ttk.Scrollbar(info_frame, command=self.audio_info_text.yview)
+        self.audio_info_text.configure(yscrollcommand=audio_info_scroll.set)
+
+        self.audio_info_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        audio_info_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Waveform display area (placeholder)
+        waveform_frame = ttk.LabelFrame(audio_frame, text="Audio Visualization", padding=5)
+        waveform_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.waveform_canvas = tk.Canvas(waveform_frame, bg='black', height=200)
+        ttk.Label(waveform_frame, text="Waveform visualization not yet implemented").pack()
+
+        self.current_audio_file = None
+        self.audio_playing = False
+
+    def view_selected_image(self):
+        """View the selected image file."""
+        if not HAS_PIL:
+            messagebox.showerror("PIL Required", "PIL (Pillow) is required for image viewing. Install with: pip install Pillow")
+            return
+
+        selection = self.file_tree.selection()
+        if not selection or not self.current_dbpf:
+            messagebox.showwarning("No Selection", "Please select an image file to view.")
+            return
+
+        item = self.file_tree.item(selection[0])
+        resource_key_str = item['text']
+
+        self.status_var.set(f"Loading image {resource_key_str}...")
+
+        def load_image_task():
+            try:
+                key = parse_resource_key(resource_key_str)
+                type_info = get_file_info_from_type(key.type_id)
+                extension, category, description = type_info
+
+                # Check if it's an image type
+                image_extensions = ['png', 'jpg', 'jpeg', 'bmp', 'tga', 'gif', 'dds', 'uitexture']
+                if extension.lower() not in image_extensions:
+                    self.show_error("Selected file is not an image file.")
+                    return
+
+                # Extract file content
+                import tempfile
+                with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                    temp_path = temp_file.name
+
+                try:
+                    success = self.current_dbpf.extract_file(key, temp_path)
+                    if not success:
+                        self.show_error("Failed to extract image file.")
+                        return
+
+                    # Load image with PIL
+                    self.current_image = Image.open(temp_path)
+
+                    # Convert to Tkinter format
+                    self.current_image_tk = ImageTk.PhotoImage(self.current_image)
+
+                    # Display on canvas
+                    self.image_canvas.delete("all")
+                    self.image_canvas.create_image(0, 0, anchor=tk.NW, image=self.current_image_tk)
+
+                    # Configure canvas scroll region
+                    width, height = self.current_image.size
+                    self.image_canvas.config(scrollregion=(0, 0, width * self.image_zoom, height * self.image_zoom))
+
+                    # Switch to image viewer tab
+                    self.preview_notebook.select(1)  # Image viewer tab
+
+                    self.status_var.set(f"Image loaded: {width}x{height}")
+
+                except Exception as e:
+                    self.show_error(f"Failed to load image: {str(e)}")
+                    self.status_var.set("Image load failed")
+                finally:
+                    try:
+                        os.unlink(temp_path)
+                    except:
+                        pass
+
+            except Exception as e:
+                self.show_error(f"Failed to load image: {str(e)}")
+                self.status_var.set("Image load failed")
+
+        thread = threading.Thread(target=load_image_task, daemon=True)
+        thread.start()
+
+    def update_image_zoom(self):
+        """Update the image zoom level."""
+        if self.current_image and self.current_image_tk:
+            try:
+                zoom = self.zoom_var.get()
+                if 0.1 <= zoom <= 5.0:
+                    self.image_zoom = zoom
+                    self.apply_image_zoom()
+            except:
+                pass
+
+    def apply_image_zoom(self):
+        """Apply the current zoom level to the displayed image."""
+        if not self.current_image:
+            return
+
+        # Resize image
+        width, height = self.current_image.size
+        new_width = int(width * self.image_zoom)
+        new_height = int(height * self.image_zoom)
+
+        resized_image = self.current_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        self.current_image_tk = ImageTk.PhotoImage(resized_image)
+
+        # Update canvas
+        self.image_canvas.delete("all")
+        self.image_canvas.create_image(0, 0, anchor=tk.NW, image=self.current_image_tk)
+        self.image_canvas.config(scrollregion=(0, 0, new_width, new_height))
+
+    def zoom_image(self, factor):
+        """Zoom the image by a factor."""
+        new_zoom = self.image_zoom * factor
+        if 0.1 <= new_zoom <= 5.0:
+            self.image_zoom = new_zoom
+            self.zoom_var.set(self.image_zoom)
+            self.apply_image_zoom()
+
+    def on_image_mousewheel(self, event):
+        """Handle mouse wheel zooming."""
+        if event.delta > 0:
+            self.zoom_image(1.1)
+        else:
+            self.zoom_image(0.9)
+
+    def fit_image_to_window(self):
+        """Fit the image to the window size."""
+        if not self.current_image:
+            return
+
+        canvas_width = self.image_canvas.winfo_width()
+        canvas_height = self.image_canvas.winfo_height()
+
+        if canvas_width > 1 and canvas_height > 1:
+            img_width, img_height = self.current_image.size
+            width_ratio = canvas_width / img_width
+            height_ratio = canvas_height / img_height
+            fit_zoom = min(width_ratio, height_ratio) * 0.9  # 90% to leave some margin
+
+            self.image_zoom = max(0.1, min(5.0, fit_zoom))
+            self.zoom_var.set(self.image_zoom)
+            self.apply_image_zoom()
+
+    def export_image(self):
+        """Export the current image to a file."""
+        if not self.current_image:
+            messagebox.showwarning("No Image", "No image is currently loaded.")
+            return
+
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".png",
+            filetypes=[("PNG files", "*.png"), ("JPEG files", "*.jpg"), ("BMP files", "*.bmp"), ("All files", "*.*")]
+        )
+
+        if file_path:
+            try:
+                self.current_image.save(file_path)
+                messagebox.showinfo("Export Successful", f"Image exported to {file_path}")
+            except Exception as e:
+                messagebox.showerror("Export Failed", f"Failed to export image: {str(e)}")
+
+    def view_selected_property(self):
+        """View the selected property file in structured format."""
+        selection = self.file_tree.selection()
+        if not selection or not self.current_dbpf:
+            messagebox.showwarning("No Selection", "Please select a property file to view.")
+            return
+
+        item = self.file_tree.item(selection[0])
+        resource_key_str = item['text']
+
+        self.status_var.set(f"Loading property file {resource_key_str}...")
+
+        def load_property_task():
+            try:
+                key = parse_resource_key(resource_key_str)
+                type_info = get_file_info_from_type(key.type_id)
+                extension, category, description = type_info
+
+                # Check if it's a property file
+                if extension.lower() != 'prop':
+                    self.show_error("Selected file is not a property file.")
+                    return
+
+                # Extract file content
+                import tempfile
+                with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                    temp_path = temp_file.name
+
+                try:
+                    success = self.current_dbpf.extract_file(key, temp_path)
+                    if not success:
+                        self.show_error("Failed to extract property file.")
+                        return
+
+                    # Read and parse property file
+                    with open(temp_path, 'rb') as f:
+                        file_data = f.read()
+
+                    self.parse_and_display_property(file_data, resource_key_str)
+
+                    # Switch to property viewer tab
+                    self.preview_notebook.select(2)  # Property viewer tab
+
+                    self.status_var.set(f"Property file loaded: {resource_key_str}")
+
+                finally:
+                    try:
+                        os.unlink(temp_path)
+                    except:
+                        pass
+
+            except Exception as e:
+                self.show_error(f"Failed to load property file: {str(e)}")
+                self.status_var.set("Property load failed")
+
+        thread = threading.Thread(target=load_property_task, daemon=True)
+        thread.start()
+
+    def parse_and_display_property(self, file_data, resource_key_str):
+        """Parse property file data and display in tree structure."""
+        # Clear existing tree
+        for item in self.prop_tree.get_children():
+            self.prop_tree.delete(item)
+
+        try:
+            # Try to decode as text
+            text_content = file_data.decode('utf-8', errors='replace')
+
+            # Parse property file structure
+            # Property files typically have format: propertyName value
+            # or: propertyName value1 value2 value3
+
+            lines = text_content.split('\n')
+            root_node = self.prop_tree.insert('', 'end', text=f"Property File: {resource_key_str}", open=True)
+
+            current_section = None
+
+            for line_num, line in enumerate(lines):
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+
+                # Check for section headers (lines that might indicate sections)
+                if line.startswith('[') and line.endswith(']'):
+                    current_section = self.prop_tree.insert(root_node, 'end', text=line, open=True)
+                    continue
+
+                # Parse property lines
+                parts = line.split(None, 1)  # Split on first whitespace
+                if len(parts) >= 1:
+                    prop_name = parts[0]
+                    prop_value = parts[1] if len(parts) > 1 else ""
+
+                    # Create tree node
+                    parent = current_section if current_section else root_node
+                    node_text = f"{prop_name}: {prop_value[:100]}{'...' if len(prop_value) > 100 else ''}"
+                    self.prop_tree.insert(parent, 'end', text=node_text)
+
+                    # If value is long, add it as a child node for better readability
+                    if len(prop_value) > 100:
+                        self.prop_tree.insert(parent, 'end', text=f"Full value: {prop_value}")
+
+        except Exception as e:
+            # If parsing fails, show raw content
+            root_node = self.prop_tree.insert('', 'end', text=f"Property File: {resource_key_str} (Raw View)", open=True)
+            self.prop_tree.insert(root_node, 'end', text=f"Parse Error: {str(e)}")
+            self.prop_tree.insert(root_node, 'end', text=f"Raw Content: {file_data[:500].decode('utf-8', errors='replace')}...")
+
+    def play_selected_audio(self):
+        """Play the selected audio file."""
+        if not (HAS_PYGAME or HAS_PLAYSOUND):
+            messagebox.showerror("Audio Library Required", "pygame or playsound is required for audio playback.\nInstall with: pip install pygame")
+            return
+
+        selection = self.file_tree.selection()
+        if not selection or not self.current_dbpf:
+            messagebox.showwarning("No Selection", "Please select an audio file to play.")
+            return
+
+        item = self.file_tree.item(selection[0])
+        resource_key_str = item['text']
+
+        self.status_var.set(f"Loading audio {resource_key_str}...")
+
+        def load_audio_task():
+            try:
+                key = parse_resource_key(resource_key_str)
+                type_info = get_file_info_from_type(key.type_id)
+                extension, category, description = type_info
+
+                # Check if it's an audio type
+                audio_extensions = ['wav', 'ogg', 'mp3', 'bnk', 'snr', 'sns', 'smt', 'instrument', 'voice', 'submix']
+                if extension.lower() not in audio_extensions:
+                    self.show_error("Selected file is not an audio file.")
+                    return
+
+                # Extract file content
+                import tempfile
+                with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{extension}') as temp_file:
+                    temp_path = temp_file.name
+
+                try:
+                    success = self.current_dbpf.extract_file(key, temp_path)
+                    if not success:
+                        self.show_error("Failed to extract audio file.")
+                        return
+
+                    self.current_audio_file = temp_path
+                    self.play_audio_file(temp_path, extension, resource_key_str)
+
+                except Exception as e:
+                    try:
+                        os.unlink(temp_path)
+                    except:
+                        pass
+                    raise e
+
+            except Exception as e:
+                self.show_error(f"Failed to load audio: {str(e)}")
+                self.status_var.set("Audio load failed")
+
+        thread = threading.Thread(target=load_audio_task, daemon=True)
+        thread.start()
+
+    def play_audio_file(self, file_path, extension, resource_key_str):
+        """Play the audio file using available library."""
+        try:
+            # Display audio information
+            audio_info = self.get_audio_info(file_path, extension, resource_key_str)
+            self.audio_info_text.config(state=tk.NORMAL)
+            self.audio_info_text.delete(1.0, tk.END)
+            self.audio_info_text.insert(1.0, audio_info)
+            self.audio_info_text.config(state=tk.DISABLED)
+
+            # Switch to audio player tab
+            audio_tab_index = 3 if HAS_PIL else 2  # Adjust index based on available tabs
+            if HAS_PYGAME or HAS_PLAYSOUND:
+                audio_tab_index = 3 if HAS_PIL else 2
+            else:
+                audio_tab_index = 2 if HAS_PIL else 1
+            self.preview_notebook.select(audio_tab_index)
+
+            # Play audio
+            if HAS_PYGAME:
+                self.play_with_pygame(file_path)
+            elif HAS_PLAYSOUND:
+                self.play_with_playsound(file_path)
+
+            self.status_var.set(f"Playing audio: {resource_key_str}")
+
+        except Exception as e:
+            self.show_error(f"Failed to play audio: {str(e)}")
+
+    def get_audio_info(self, file_path, extension, resource_key_str):
+        """Get audio file information."""
+        try:
+            file_size = os.path.getsize(file_path)
+
+            info_lines = [
+                f"Audio File: {resource_key_str}",
+                f"Extension: {extension.upper()}",
+                f"File Size: {file_size} bytes",
+                "",
+            ]
+
+            # Try to get WAV header info
+            if extension.lower() == 'wav' and file_size >= 44:
+                try:
+                    with open(file_path, 'rb') as f:
+                        header = f.read(44)
+
+                    # Parse WAV header
+                    channels = int.from_bytes(header[22:24], 'little')
+                    sample_rate = int.from_bytes(header[24:28], 'little')
+                    bits_per_sample = int.from_bytes(header[34:36], 'little')
+
+                    info_lines.extend([
+                        "WAV Format Information:",
+                        f"  Channels: {channels}",
+                        f"  Sample Rate: {sample_rate} Hz",
+                        f"  Bits per Sample: {bits_per_sample}",
+                        f"  Duration: ~{file_size / (sample_rate * channels * bits_per_sample / 8):.1f} seconds"
+                    ])
+                except:
+                    info_lines.append("Could not parse WAV header")
+
+            return "\n".join(info_lines)
+
+        except Exception as e:
+            return f"Audio File: {resource_key_str}\nError getting info: {str(e)}"
+
+    def play_with_pygame(self, file_path):
+        """Play audio using pygame."""
+        try:
+            pygame.mixer.init()
+            pygame.mixer.music.load(file_path)
+            pygame.mixer.music.play()
+
+            self.audio_playing = True
+            self.play_button.config(state=tk.NORMAL, text="Stop")
+
+            # Monitor playback
+            def check_playback():
+                while self.audio_playing and pygame.mixer.music.get_busy():
+                    time.sleep(0.1)
+                if self.audio_playing:
+                    self.stop_audio()
+
+            thread = threading.Thread(target=check_playback, daemon=True)
+            thread.start()
+
+        except Exception as e:
+            self.show_error(f"Pygame playback failed: {str(e)}")
+
+    def play_with_playsound(self, file_path):
+        """Play audio using playsound."""
+        try:
+            # playsound is blocking, so run in thread
+            def play_thread():
+                try:
+                    playsound.playsound(file_path, block=True)
+                except:
+                    pass
+                finally:
+                    self.audio_playing = False
+                    self.play_button.config(state=tk.DISABLED, text="Play Selected Audio")
+
+            self.audio_playing = True
+            self.play_button.config(state=tk.NORMAL, text="Stop")
+
+            thread = threading.Thread(target=play_thread, daemon=True)
+            thread.start()
+
+        except Exception as e:
+            self.show_error(f"Playsound playback failed: {str(e)}")
+
+    def stop_audio(self):
+        """Stop current audio playback."""
+        self.audio_playing = False
+
+        if HAS_PYGAME:
+            try:
+                pygame.mixer.music.stop()
+            except:
+                pass
+
+        self.play_button.config(state=tk.DISABLED, text="Play Selected Audio")
+        self.status_var.set("Audio stopped")
+
+        # Clean up temp file
+        if self.current_audio_file and os.path.exists(self.current_audio_file):
+            try:
+                os.unlink(self.current_audio_file)
+            except:
+                pass
+        self.current_audio_file = None
+
+    def export_audio(self):
+        """Export the current audio file."""
+        if not self.current_audio_file or not os.path.exists(self.current_audio_file):
+            messagebox.showwarning("No Audio", "No audio file is currently loaded.")
+            return
+
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".wav",
+            filetypes=[("WAV files", "*.wav"), ("All files", "*.*")]
+        )
+
+        if file_path:
+            try:
+                import shutil
+                shutil.copy2(self.current_audio_file, file_path)
+                messagebox.showinfo("Export Successful", f"Audio exported to {file_path}")
+            except Exception as e:
+                messagebox.showerror("Export Failed", f"Failed to export audio: {str(e)}")
+
+    def _preview_cell_file_detailed(self, file_data: bytes) -> str:
+        """Preview cell/stage file with detailed parsing."""
+        file_size = len(file_data)
+
+        header = f"Cell/Stage File - {file_size} bytes\n\n"
+        header += "This file contains Spore cell stage data and configuration.\n"
+        header += "Cell files define the structure and behavior of cell stages.\n\n"
+
+        try:
+            # Try to parse as text first
+            text_content = file_data.decode('utf-8', errors='replace')
+
+            # Look for common cell file patterns
+            lines = text_content.split('\n')
+            parsed_sections = []
+
+            for line in lines[:50]:  # Check first 50 lines
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+
+                # Look for common cell file keywords
+                if any(keyword in line.lower() for keyword in ['cell', 'stage', 'level', 'difficulty', 'time', 'score']):
+                    parsed_sections.append(line)
+
+            if parsed_sections:
+                header += "Detected sections:\n"
+                for section in parsed_sections[:10]:  # Show first 10
+                    header += f"  • {section}\n"
+                header += "\n"
+
+            # Show content preview
+            if len(text_content) > 1000:
+                text_content = text_content[:1000] + "\n\n[... Content truncated ...]"
+
+            return header + "Content preview:\n\n" + text_content
+
+        except:
+            return header + "Binary cell data:\n\n" + self._create_hex_dump(file_data[:1024])
+
+    def _preview_creature_data_detailed(self, file_data: bytes) -> str:
+        """Preview creature data file with detailed parsing."""
+        file_size = len(file_data)
+
+        header = f"Creature Data File - {file_size} bytes\n\n"
+        header += "This file contains creature definition and statistics.\n"
+        header += "Creature data includes abilities, stats, and behavioral information.\n\n"
+
+        try:
+            # Try to parse as text first
+            text_content = file_data.decode('utf-8', errors='replace')
+
+            # Look for common creature data patterns
+            lines = text_content.split('\n')
+            creature_info = []
+
+            for line in lines[:100]:  # Check first 100 lines
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+
+                # Look for creature-related keywords
+                if any(keyword in line.lower() for keyword in ['creature', 'ability', 'stat', 'health', 'damage', 'speed', 'size']):
+                    creature_info.append(line)
+
+            if creature_info:
+                header += "Detected creature properties:\n"
+                for info in creature_info[:15]:  # Show first 15
+                    header += f"  • {info}\n"
+                header += "\n"
+
+            # Show content preview
+            if len(text_content) > 1500:
+                text_content = text_content[:1500] + "\n\n[... Content truncated ...]"
+
+            return header + "Content preview:\n\n" + text_content
+
+        except:
+            return header + "Binary creature data:\n\n" + self._create_hex_dump(file_data[:1024])
 
     def setup_output_tab(self, parent):
         """Set up the output tab."""
@@ -721,11 +1433,15 @@ Saved: {info['saved']}
                     # Update info label
                     self.preview_info_var.set(f"Previewing: {extension.upper()} file ({category}) - {len(file_data)} bytes")
 
-                    # Switch to preview tab
-                    self.details_notebook.select(1)
+                    # Switch to appropriate tab based on file type
+                    tab_index = self._get_appropriate_tab(extension)
+                    self.preview_notebook.select(tab_index)
 
                     self.status_var.set(f"Preview loaded for {resource_key_str}")
 
+                except Exception as e:
+                    self.show_error(f"Failed to preview file: {str(e)}")
+                    self.status_var.set("Preview failed")
                 finally:
                     # Clean up temp file
                     try:
@@ -740,21 +1456,45 @@ Saved: {info['saved']}
         thread = threading.Thread(target=preview_task, daemon=True)
         thread.start()
 
+    def _get_appropriate_tab(self, extension):
+        """Get the appropriate tab index for the file type."""
+        # Image files
+        if extension.lower() in ['png', 'jpg', 'jpeg', 'bmp', 'tga', 'gif', 'dds', 'uitexture'] and HAS_PIL:
+            return 1  # Image viewer tab
+
+        # Property files
+        elif extension.lower() == 'prop':
+            return 2 if HAS_PIL else 1  # Property viewer tab
+
+        # Audio files
+        elif extension.lower() in ['wav', 'ogg', 'mp3', 'bnk', 'snr', 'sns', 'smt', 'instrument', 'voice', 'submix'] and (HAS_PYGAME or HAS_PLAYSOUND):
+            if HAS_PIL:
+                return 3  # Audio player tab
+            else:
+                return 2  # Audio player tab
+
+        # Default to text preview
+        else:
+            return 0  # Text preview tab
+
     def _generate_preview_content(self, file_data: bytes, extension: str, category: str, resource_key) -> str:
         """Generate appropriate preview content based on file type."""
         file_size = len(file_data)
 
-        # Image files - show basic info (can't display actual images in text widget)
+        # Image files - show basic info and direct to image viewer
         if extension.lower() in ['png', 'jpg', 'jpeg', 'bmp', 'tga', 'gif', 'dds', 'uitexture']:
-            return self._preview_image(file_data, extension, resource_key)
+            if HAS_PIL:
+                return self._preview_image_redirect(file_data, extension, resource_key)
+            else:
+                return self._preview_image(file_data, extension, resource_key)
 
         # Text-based files
         elif extension.lower() in ['txt', 'xml', 'html', 'json', 'ini', 'cfg', 'lua', 'js', 'py', 'log', 'css', 'xhtml']:
             return self._preview_text_file(file_data, extension)
 
-        # Property files
+        # Property files - direct to property viewer
         elif extension.lower() == 'prop':
-            return self._preview_prop_file(file_data, resource_key)
+            return self._preview_property_redirect(file_data, resource_key)
 
         # Effect files
         elif extension.lower() in ['eff', 'pfx', 'effectmap', 'cfx', 'bfx']:
@@ -768,13 +1508,16 @@ Saved: {info['saved']}
         elif extension.lower() in ['animation', 'tlsa', 'ani', 'hkx', 'gait', 'animstate']:
             return self._preview_animation_file(file_data, extension)
 
-        # Audio files
+        # Audio files - direct to audio player
         elif extension.lower() in ['wav', 'ogg', 'mp3', 'bnk', 'snr', 'sns', 'smt', 'instrument', 'voice', 'submix']:
-            return self._preview_audio_file(file_data, extension)
+            if HAS_PYGAME or HAS_PLAYSOUND:
+                return self._preview_audio_redirect(file_data, extension, resource_key)
+            else:
+                return self._preview_audio_file(file_data, extension)
 
         # Cell/stage files
         elif extension.lower() == 'cell':
-            return self._preview_cell_file(file_data)
+            return self._preview_cell_file_detailed(file_data)
 
         # Level files
         elif extension.lower() in ['lvl', 'level.bin', 'levelconfig.bin', 'levelobjectives.bin']:
@@ -782,7 +1525,7 @@ Saved: {info['saved']}
 
         # Creature data
         elif extension.lower() == 'creaturedata':
-            return self._preview_creature_data(file_data)
+            return self._preview_creature_data_detailed(file_data)
 
         # Binary data files (various types)
         elif extension.lower() in ['bin', 'dat', 'blockinfo', 'adv', 'formation', 'trigger', 'trait_pill',
@@ -792,6 +1535,76 @@ Saved: {info['saved']}
         # Default binary preview
         else:
             return self._preview_binary_data(file_data, extension, category)
+
+    def _preview_image_redirect(self, file_data: bytes, extension: str, resource_key) -> str:
+        """Preview image file with redirect to image viewer."""
+        file_size = len(file_data)
+
+        info_lines = [f"Image File ({extension.upper()}) - {file_size} bytes"]
+        info_lines.append(f"Resource Key: {resource_key.group_id:08X}!{resource_key.instance_id:08X}.{resource_key.type_id:08X}")
+        info_lines.append("")
+        info_lines.append("✓ PIL is available - Use the 'Image Viewer' tab for full image display")
+        info_lines.append("Features available:")
+        info_lines.append("  • Zoom controls (10% to 500%)")
+        info_lines.append("  • Fit to window")
+        info_lines.append("  • Export to PNG/JPG/BMP")
+        info_lines.append("  • Scroll and pan")
+        info_lines.append("")
+        info_lines.append("Click 'View Selected Image' in the Image Viewer tab to display this image.")
+
+        return "\n".join(info_lines)
+
+    def _preview_property_redirect(self, file_data: bytes, resource_key) -> str:
+        """Preview property file with redirect to property viewer."""
+        file_size = len(file_data)
+
+        header = f"Property File - {file_size} bytes\n"
+        header += f"Resource Key: {resource_key.group_id:08X}!{resource_key.instance_id:08X}.{resource_key.type_id:08X}\n\n"
+        header += "✓ Property viewer available - Use the 'Property Viewer' tab for structured display\n"
+        header += "Features available:\n"
+        header += "  • Hierarchical property tree view\n"
+        header += "  • Easy navigation of property structures\n"
+        header += "  • Section-based organization\n\n"
+        header += "Click 'View Selected Property' in the Property Viewer tab to display this file.\n\n"
+
+        # Show a brief text preview
+        try:
+            text_content = file_data.decode('utf-8', errors='replace')
+            if len(text_content) > 500:
+                text_content = text_content[:500] + "\n\n[... Content truncated - use Property Viewer for full structure ...]"
+            return header + "Raw Content Preview:\n\n" + text_content
+        except:
+            return header + "Binary property file - use Property Viewer tab for structured display"
+
+    def _preview_audio_redirect(self, file_data: bytes, extension: str, resource_key) -> str:
+        """Preview audio file with redirect to audio player."""
+        file_size = len(file_data)
+
+        header = f"Audio File ({extension.upper()}) - {file_size} bytes\n"
+        header += f"Resource Key: {resource_key.group_id:08X}!{resource_key.instance_id:08X}.{resource_key.type_id:08X}\n\n"
+
+        if HAS_PYGAME or HAS_PLAYSOUND:
+            header += "✓ Audio playback available - Use the 'Audio Player' tab to listen\n"
+            header += "Features available:\n"
+            header += "  • Play/Stop controls\n"
+            header += "  • Audio format information\n"
+            header += "  • Export to WAV\n\n"
+            header += "Click 'Play Selected Audio' in the Audio Player tab to listen to this file.\n\n"
+        else:
+            header += "✗ Audio libraries not available for playback\n"
+            header += "Install pygame (pip install pygame) or playsound (pip install playsound)\n\n"
+
+        # Try to show basic WAV info
+        if extension.lower() == 'wav' and file_size >= 44:
+            try:
+                channels = int.from_bytes(file_data[22:24], 'little')
+                sample_rate = int.from_bytes(file_data[24:28], 'little')
+                bits_per_sample = int.from_bytes(file_data[34:36], 'little')
+                header += f"WAV Info: {channels}ch, {sample_rate}Hz, {bits_per_sample}bit\n"
+            except:
+                pass
+
+        return header + "Raw audio data (first 256 bytes):\n\n" + self._create_hex_dump(file_data[:256])
 
     def _preview_image(self, file_data: bytes, extension: str, resource_key) -> str:
         """Preview image file information."""
@@ -999,10 +1812,34 @@ Saved: {info['saved']}
         return '\n'.join(lines)
 
     def clear_preview(self):
-        """Clear the preview display."""
+        """Clear all preview displays."""
+        # Clear text preview
         self.preview_text.config(state=tk.NORMAL)
         self.preview_text.delete(1.0, tk.END)
         self.preview_text.config(state=tk.DISABLED)
+
+        # Clear image viewer
+        if hasattr(self, 'image_canvas'):
+            self.image_canvas.delete("all")
+            self.current_image = None
+            self.current_image_tk = None
+
+        # Clear property viewer
+        if hasattr(self, 'prop_tree'):
+            for item in self.prop_tree.get_children():
+                self.prop_tree.delete(item)
+
+        # Clear audio player
+        if hasattr(self, 'audio_info_text'):
+            self.audio_info_text.config(state=tk.NORMAL)
+            self.audio_info_text.delete(1.0, tk.END)
+            self.audio_info_text.config(state=tk.DISABLED)
+
+        # Stop any playing audio
+        if hasattr(self, 'audio_playing') and self.audio_playing:
+            self.stop_audio()
+
+        # Reset info label
         self.preview_info_var.set("Select a file and click 'Preview Selected File' to view its contents.")
         self.status_var.set("Preview cleared")
 

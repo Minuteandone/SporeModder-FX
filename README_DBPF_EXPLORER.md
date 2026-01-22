@@ -23,10 +23,41 @@ A complete standalone Python GUI application for working with DBPF (Database Pac
 ### ℹ️ **File Information**
 - Detailed metadata for each file (offsets, sizes, compression)
 - Resource key parsing and display
-- **File content preview** with automatic text/binary detection
+- **Advanced file content preview system**:
+  - **Image Viewer**: Full image display with zoom, pan, and export (requires PIL/Pillow)
+  - **Property Viewer**: Structured tree view of .prop files
+  - **Audio Player**: Play audio files with format info (requires pygame/playsound)
+  - **Enhanced previews** for cell files, creature data, and other Spore formats
 - **Hex dump viewer** for binary files
 - File type identification and categorization
 - Human-readable filenames with proper extensions
+
+### 🎨 **Advanced Viewers**
+
+#### Image Viewer (requires `pip install Pillow`)
+- Display PNG, DDS, TGA, and other image formats
+- Zoom controls (10% to 500%)
+- Fit to window functionality
+- Export images to different formats
+- Pan and scroll support
+
+#### Property Viewer
+- Hierarchical tree view of property files
+- Easy navigation of complex property structures
+- Section-based organization
+- Full property value display
+
+#### Audio Player (requires `pip install pygame` or `pip install playsound`)
+- Play WAV, OGG, MP3, and other audio formats
+- Audio format information display
+- Play/stop controls
+- Export audio to WAV format
+
+#### Specialized Previews
+- **Cell Files**: Detailed parsing of cell stage data
+- **Creature Data**: Structured view of creature definitions and stats
+- **Effect Files**: Preview of particle effects and shaders
+- **Model Files**: Information about 3D models and animations
 
 ### 🔍 **Search & Filter**
 - Real-time search through file lists
@@ -44,6 +75,19 @@ A complete standalone Python GUI application for working with DBPF (Database Pac
 - Python 3.6+
 - tkinter (usually included with Python)
 - The DBPF modules (`dbpf_unpacker.py` and `dbpf_interface.py`)
+
+### Optional Dependencies (for enhanced features)
+```bash
+# Image viewing with zoom and export
+pip install Pillow
+
+# Audio playback (choose one)
+pip install pygame
+# OR
+pip install playsound
+```
+
+**Note**: Without optional dependencies, the application still works but with limited preview capabilities for images and audio files.
 
 ### Quick Start
 ```bash
