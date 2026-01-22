@@ -458,13 +458,19 @@ class DBPFExplorer:
         details_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
     def setup_preview_tab(self, parent):
-        """Set up the file preview tab."""
+        """Set up the file preview tab with enhanced preview capabilities."""
         # Preview controls
         controls_frame = ttk.Frame(parent)
         controls_frame.pack(fill=tk.X, pady=(0, 5))
 
         ttk.Button(controls_frame, text="Preview Selected File", command=self.preview_selected_file).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(controls_frame, text="Clear Preview", command=self.clear_preview).pack(side=tk.LEFT)
+
+        # Preview info label
+        self.preview_info_var = tk.StringVar()
+        self.preview_info_var.set("Select a file and click 'Preview Selected File' to view its contents.")
+        info_label = ttk.Label(controls_frame, textvariable=self.preview_info_var, foreground="blue")
+        info_label.pack(side=tk.LEFT, padx=(20, 0))
 
         # Preview display
         preview_frame = ttk.LabelFrame(parent, text="File Content Preview", padding=5)
@@ -668,7 +674,7 @@ Saved: {info['saved']}
             self.show_error(f"Failed to get file info: {str(e)}")
 
     def preview_selected_file(self):
-        """Preview the content of the selected file."""
+        """Preview the content of the selected file using appropriate preview method."""
         selection = self.file_tree.selection()
         if not selection or not self.current_dbpf:
             messagebox.showwarning("No Selection", "Please select a file to preview.")
@@ -682,9 +688,10 @@ Saved: {info['saved']}
         def preview_task():
             try:
                 key = parse_resource_key(resource_key_str)
+                type_info = get_file_info_from_type(key.type_id)
+                extension, category, description = type_info
 
                 # Extract file content to memory
-                from io import BytesIO
                 import tempfile
                 import os
 
@@ -702,30 +709,17 @@ Saved: {info['saved']}
                     with open(temp_path, 'rb') as f:
                         file_data = f.read()
 
-                    # Try to determine if it's text or binary
-                    try:
-                        # Try to decode as UTF-8
-                        text_content = file_data.decode('utf-8', errors='replace')
-
-                        # Check if it looks like binary data (has null bytes or high ratio of non-printable chars)
-                        if '\x00' in text_content[:1024] or self._is_binary_data(file_data[:1024]):
-                            # Binary file - show hex dump
-                            hex_content = self._create_hex_dump(file_data[:2048])  # Limit preview size
-                            preview_content = f"Binary file ({len(file_data)} bytes)\n\nHex dump (first 2048 bytes):\n\n{hex_content}"
-                        else:
-                            # Text file - show content
-                            preview_content = f"Text file ({len(file_data)} bytes)\n\nContent:\n\n{text_content[:8192]}"  # Limit preview size
-
-                    except UnicodeDecodeError:
-                        # Definitely binary - show hex dump
-                        hex_content = self._create_hex_dump(file_data[:2048])
-                        preview_content = f"Binary file ({len(file_data)} bytes)\n\nHex dump (first 2048 bytes):\n\n{hex_content}"
+                    # Use appropriate preview method based on file type
+                    preview_content = self._generate_preview_content(file_data, extension, category, key)
 
                     # Update preview text
                     self.preview_text.config(state=tk.NORMAL)
                     self.preview_text.delete(1.0, tk.END)
                     self.preview_text.insert(1.0, preview_content)
                     self.preview_text.config(state=tk.DISABLED)
+
+                    # Update info label
+                    self.preview_info_var.set(f"Previewing: {extension.upper()} file ({category}) - {len(file_data)} bytes")
 
                     # Switch to preview tab
                     self.details_notebook.select(1)
@@ -745,6 +739,235 @@ Saved: {info['saved']}
 
         thread = threading.Thread(target=preview_task, daemon=True)
         thread.start()
+
+    def _generate_preview_content(self, file_data: bytes, extension: str, category: str, resource_key) -> str:
+        """Generate appropriate preview content based on file type."""
+        file_size = len(file_data)
+
+        # Image files - show basic info (can't display actual images in text widget)
+        if extension.lower() in ['png', 'jpg', 'jpeg', 'bmp', 'tga', 'gif', 'dds', 'uitexture']:
+            return self._preview_image(file_data, extension, resource_key)
+
+        # Text-based files
+        elif extension.lower() in ['txt', 'xml', 'html', 'json', 'ini', 'cfg', 'lua', 'js', 'py', 'log', 'css', 'xhtml']:
+            return self._preview_text_file(file_data, extension)
+
+        # Property files
+        elif extension.lower() == 'prop':
+            return self._preview_prop_file(file_data, resource_key)
+
+        # Effect files
+        elif extension.lower() in ['eff', 'pfx', 'effectmap', 'cfx', 'bfx']:
+            return self._preview_effect_file(file_data, extension)
+
+        # Model files
+        elif extension.lower() in ['rw4', 'gmdl', 'bmdl', 'gmsh']:
+            return self._preview_model_file(file_data, extension)
+
+        # Animation files
+        elif extension.lower() in ['animation', 'tlsa', 'ani', 'hkx', 'gait', 'animstate']:
+            return self._preview_animation_file(file_data, extension)
+
+        # Audio files
+        elif extension.lower() in ['wav', 'ogg', 'mp3', 'bnk', 'snr', 'sns', 'smt', 'instrument', 'voice', 'submix']:
+            return self._preview_audio_file(file_data, extension)
+
+        # Cell/stage files
+        elif extension.lower() == 'cell':
+            return self._preview_cell_file(file_data)
+
+        # Level files
+        elif extension.lower() in ['lvl', 'level.bin', 'levelconfig.bin', 'levelobjectives.bin']:
+            return self._preview_level_file(file_data, extension)
+
+        # Creature data
+        elif extension.lower() == 'creaturedata':
+            return self._preview_creature_data(file_data)
+
+        # Binary data files (various types)
+        elif extension.lower() in ['bin', 'dat', 'blockinfo', 'adv', 'formation', 'trigger', 'trait_pill',
+                                   'lrumetadata', 'cur', 'geom', 'geo', 'physx_bin', 'physx_xml']:
+            return self._preview_binary_data(file_data, extension, category)
+
+        # Default binary preview
+        else:
+            return self._preview_binary_data(file_data, extension, category)
+
+    def _preview_image(self, file_data: bytes, extension: str, resource_key) -> str:
+        """Preview image file information."""
+        file_size = len(file_data)
+
+        # Try to get basic image info if possible
+        info_lines = [f"Image File ({extension.upper()}) - {file_size} bytes"]
+        info_lines.append(f"Resource Key: {resource_key.group_id:08X}!{resource_key.instance_id:08X}.{resource_key.type_id:08X}")
+        info_lines.append("")
+
+        # For DDS files, try to parse header
+        if extension.lower() == 'dds' and file_size >= 128:
+            try:
+                # DDS header parsing (simplified)
+                width = int.from_bytes(file_data[16:20], 'little')
+                height = int.from_bytes(file_data[12:16], 'little')
+                info_lines.append(f"Dimensions: {width} x {height}")
+            except:
+                pass
+
+        info_lines.append("")
+        info_lines.append("Note: Full image preview not available in text mode.")
+        info_lines.append("Use 'Extract' to save the image file and view it with an image viewer.")
+
+        return "\n".join(info_lines)
+
+    def _preview_text_file(self, file_data: bytes, extension: str) -> str:
+        """Preview text-based files."""
+        file_size = len(file_data)
+
+        try:
+            # Try different encodings
+            for encoding in ['utf-8', 'utf-16', 'latin-1']:
+                try:
+                    text_content = file_data.decode(encoding, errors='replace')
+                    break
+                except:
+                    continue
+            else:
+                text_content = file_data.decode('utf-8', errors='replace')
+
+            # Limit preview size
+            max_preview = 16384  # 16KB
+            if len(text_content) > max_preview:
+                text_content = text_content[:max_preview] + "\n\n[... Content truncated due to size ...]"
+
+            header = f"Text File ({extension.upper()}) - {file_size} bytes\n\nContent:\n\n"
+            return header + text_content
+
+        except Exception as e:
+            return f"Text File ({extension.upper()}) - {file_size} bytes\n\nError reading text content: {str(e)}\n\nHex dump:\n\n{self._create_hex_dump(file_data[:1024])}"
+
+    def _preview_prop_file(self, file_data: bytes, resource_key) -> str:
+        """Preview property file."""
+        file_size = len(file_data)
+
+        header = f"Property File - {file_size} bytes\n"
+        header += f"Resource Key: {resource_key.group_id:08X}!{resource_key.instance_id:08X}.{resource_key.type_id:08X}\n\n"
+
+        # Try to parse as text first
+        try:
+            text_content = file_data.decode('utf-8', errors='replace')
+            if len(text_content) > 4096:
+                text_content = text_content[:4096] + "\n\n[... Content truncated ...]"
+            return header + "Content (Text View):\n\n" + text_content
+        except:
+            return header + "Binary property file:\n\n" + self._create_hex_dump(file_data[:2048])
+
+    def _preview_effect_file(self, file_data: bytes, extension: str) -> str:
+        """Preview effect file."""
+        file_size = len(file_data)
+
+        header = f"Effect File ({extension.upper()}) - {file_size} bytes\n\n"
+
+        # Try text first, then hex
+        try:
+            text_content = file_data.decode('utf-8', errors='replace')
+            if len(text_content) > 4096:
+                text_content = text_content[:4096] + "\n\n[... Content truncated ...]"
+            return header + "Content:\n\n" + text_content
+        except:
+            return header + "Binary effect data:\n\n" + self._create_hex_dump(file_data[:2048])
+
+    def _preview_model_file(self, file_data: bytes, extension: str) -> str:
+        """Preview 3D model file."""
+        file_size = len(file_data)
+
+        header = f"3D Model File ({extension.upper()}) - {file_size} bytes\n\n"
+        header += "Note: This is a binary 3D model file.\n"
+        header += "Use specialized 3D software to view the complete model.\n\n"
+
+        # Try to extract some basic info
+        if extension.lower() == 'rw4' and file_size >= 64:
+            try:
+                # RW4 files start with "RBFH" or similar
+                magic = file_data[:4].decode('ascii', errors='ignore')
+                header += f"File signature: {magic}\n"
+            except:
+                pass
+
+        return header + "Hex dump (first 512 bytes):\n\n" + self._create_hex_dump(file_data[:512])
+
+    def _preview_animation_file(self, file_data: bytes, extension: str) -> str:
+        """Preview animation file."""
+        file_size = len(file_data)
+
+        header = f"Animation File ({extension.upper()}) - {file_size} bytes\n\n"
+        header += "Note: This contains animation data for creatures/objects.\n\n"
+
+        return header + "Binary animation data:\n\n" + self._create_hex_dump(file_data[:1024])
+
+    def _preview_audio_file(self, file_data: bytes, extension: str) -> str:
+        """Preview audio file."""
+        file_size = len(file_data)
+
+        header = f"Audio File ({extension.upper()}) - {file_size} bytes\n\n"
+
+        # Try to get basic WAV info
+        if extension.lower() == 'wav' and file_size >= 44:
+            try:
+                channels = int.from_bytes(file_data[22:24], 'little')
+                sample_rate = int.from_bytes(file_data[24:28], 'little')
+                bits_per_sample = int.from_bytes(file_data[34:36], 'little')
+                header += f"Channels: {channels}\n"
+                header += f"Sample Rate: {sample_rate} Hz\n"
+                header += f"Bits per Sample: {bits_per_sample}\n\n"
+            except:
+                pass
+
+        header += "Note: Use an audio player to listen to this file.\n\n"
+        return header + "Raw audio data (first 256 bytes):\n\n" + self._create_hex_dump(file_data[:256])
+
+    def _preview_cell_file(self, file_data: bytes) -> str:
+        """Preview cell/stage file."""
+        file_size = len(file_data)
+
+        header = f"Cell/Stage File - {file_size} bytes\n\n"
+        header += "This file contains Spore cell stage data and configuration.\n\n"
+
+        return header + "Binary cell data:\n\n" + self._create_hex_dump(file_data[:1024])
+
+    def _preview_level_file(self, file_data: bytes, extension: str) -> str:
+        """Preview level file."""
+        file_size = len(file_data)
+
+        header = f"Level File ({extension}) - {file_size} bytes\n\n"
+        header += "This file contains level configuration and objectives.\n\n"
+
+        return header + "Binary level data:\n\n" + self._create_hex_dump(file_data[:1024])
+
+    def _preview_creature_data(self, file_data: bytes) -> str:
+        """Preview creature data file."""
+        file_size = len(file_data)
+
+        header = f"Creature Data File - {file_size} bytes\n\n"
+        header += "This file contains creature definition and statistics.\n\n"
+
+        return header + "Binary creature data:\n\n" + self._create_hex_dump(file_data[:1024])
+
+    def _preview_binary_data(self, file_data: bytes, extension: str, category: str) -> str:
+        """Preview generic binary data."""
+        file_size = len(file_data)
+
+        header = f"Binary File ({extension.upper()}) - {file_size} bytes\n"
+        header += f"Category: {category}\n\n"
+
+        # Try to detect some common patterns
+        if file_data.startswith(b'RBFH'):
+            header += "Detected: RenderWare file header\n"
+        elif file_data.startswith(b'DDS '):
+            header += "Detected: DDS texture file\n"
+        elif file_data[:4] in [b'PROP', b'prop']:
+            header += "Detected: Property file\n"
+
+        header += "\nHex dump (first 1024 bytes):\n\n"
+        return header + self._create_hex_dump(file_data[:1024])
 
     def _is_binary_data(self, data: bytes) -> bool:
         """Check if data appears to be binary."""
@@ -774,6 +997,14 @@ Saved: {info['saved']}
             lines.append(f'{i:08X}: {hex_part} | {ascii_part}')
 
         return '\n'.join(lines)
+
+    def clear_preview(self):
+        """Clear the preview display."""
+        self.preview_text.config(state=tk.NORMAL)
+        self.preview_text.delete(1.0, tk.END)
+        self.preview_text.config(state=tk.DISABLED)
+        self.preview_info_var.set("Select a file and click 'Preview Selected File' to view its contents.")
+        self.status_var.set("Preview cleared")
 
     def clear_preview(self):
         """Clear the file preview."""
