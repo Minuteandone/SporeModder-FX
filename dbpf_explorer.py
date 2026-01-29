@@ -61,6 +61,7 @@ except ImportError:
 try:
     from dbpf_interface import DBPFInterface, parse_resource_key, ResourceKey
     from dbpf_unpacker import DBPFUnpacker
+    from name_registry import get_hash_manager, get_file_name, get_type_name, get_property_name, fnv_hash
     DBPF_AVAILABLE = True
 except ImportError as e:
     DBPF_AVAILABLE = False
@@ -238,6 +239,7 @@ SPORE_FILE_TYPES = {
 def get_file_info_from_type(type_id: int) -> Tuple[str, str, str]:
     """
     Get file extension, category, and description from type ID.
+    Uses the registry system to get actual type names.
 
     Args:
         type_id: The file type ID
@@ -248,31 +250,33 @@ def get_file_info_from_type(type_id: int) -> Tuple[str, str, str]:
     if type_id in SPORE_FILE_TYPES:
         return SPORE_FILE_TYPES[type_id]
     else:
-        return ('dat', 'Unknown', f'Unknown Type (0x{type_id:08X})')
+        # Try to get the type name from registry
+        type_name = get_type_name(type_id)
+        return (type_name.lower(), 'Unknown', f'Unknown Type')
 
 
 def generate_readable_filename(resource_key: ResourceKey, type_info: Tuple[str, str, str]) -> str:
     """
-    Generate a human-readable filename from resource key and type info.
+    Generate a human-readable filename from resource key using the registry system.
+    Matches the Java implementation's filename generation.
 
     Args:
         resource_key: The resource key
         type_info: Tuple of (extension, category, description)
 
     Returns:
-        A readable filename
+        A readable filename like "filename.ext"
     """
     extension, category, description = type_info
 
-    # Create a readable name based on the resource key
-    group_hex = f"{resource_key.group_id:08X}"
-    instance_hex = f"{resource_key.instance_id:08X}"
-    type_hex = f"{resource_key.type_id:08X}"
+    # Use the registry to get actual names for the instance and type IDs
+    instance_name = get_file_name(resource_key.instance_id)
+    type_name = get_type_name(resource_key.type_id)
 
-    # Try to make it more readable - use last 4 digits of instance for uniqueness
-    short_instance = f"{resource_key.instance_id & 0xFFFF:04X}"
-
-    return f"{category}_{short_instance}_{type_hex}.{extension}"
+    # Format: instance_name.type_name
+    # The instance_name may already be hex (0x...) if not found in registry
+    # The type_name may already be hex (0x...) if not found in registry
+    return f"{instance_name}.{type_name}"
 
 
 class DBPFExplorer:
@@ -287,6 +291,9 @@ class DBPFExplorer:
         # Current DBPF interface
         self.current_dbpf: Optional[DBPFInterface] = None
         self.current_file_path: Optional[str] = None
+
+        # Initialize the hash manager with registry files from current directory
+        self.hash_manager = get_hash_manager(os.path.dirname(os.path.abspath(__file__)))
 
         # Create the main interface
         self.setup_ui()
@@ -1335,8 +1342,6 @@ class DBPFExplorer:
             special_props = {
                 0x00B2CCCA: "description",
                 0x00B2CCCB: "parent",
-                0x2F8B3BF4: "name",  # FNV132 hash of "name"
-                0x5F6317D5: "parent"  # FNV132 hash of "parent"
             }
 
             # Group properties
@@ -1344,7 +1349,12 @@ class DBPFExplorer:
             regular_group = self.prop_tree.insert(root_node, 'end', text="Properties", open=True)
 
             for prop_id, prop_data in properties.items():
-                prop_name = special_props.get(prop_id, f"0x{prop_id:08X}")
+                # Try to get property name from registry, fall back to hex if not found
+                if prop_id in special_props:
+                    prop_name = special_props[prop_id]
+                else:
+                    prop_name = get_property_name(prop_id)
+
                 prop_type, prop_value = prop_data
 
                 # Determine which group to put it in
